@@ -11,15 +11,15 @@ pub struct Database {
 #[derive(Debug, Clone)]
 pub struct RepoData {
     pub name: String,
-    pub worktrees: Vec<WorktreeInfo>,  // All worktrees in repo
+    pub worktrees: Vec<WorktreeInfo>, // All worktrees in repo
     pub branches: Vec<BranchData>,
 }
 
 #[derive(Debug, Clone)]
 pub struct WorktreeInfo {
     pub path: PathBuf,
-    pub name: String,                        // folder name for display
-    pub checked_out_branch: Option<String>,  // which branch is checked out
+    pub name: String,                       // folder name for display
+    pub checked_out_branch: Option<String>, // which branch is checked out
 }
 
 #[derive(Debug, Clone)]
@@ -197,37 +197,67 @@ impl Database {
     }
 
     /// Get repos with their branches and sessions, filtered by search string
+    /// Without filter: shows branches with sessions modified in last 7 days
+    /// With filter: shows all branches matching the filter
     pub fn get_repos_with_data(&self, filter: &str) -> Result<Vec<RepoData>, Box<dyn Error>> {
         let filter_pattern = format!("%{}%", filter.to_lowercase());
+        let has_filter = !filter.is_empty();
 
-        // Get all repos that have worktrees matching the filter (by repo name or branch)
+        // Calculate 7 days ago timestamp
+        let seven_days_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64 - 7 * 24 * 60 * 60)
+            .unwrap_or(0);
+
+        // Get all repos that have worktrees
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT r.id, r.name
              FROM repos r
              JOIN worktrees w ON w.repo_id = r.id
-             WHERE w.branch IS NOT NULL
-               AND (LOWER(r.name) LIKE ?1 OR LOWER(w.branch) LIKE ?1)
              ORDER BY r.name",
         )?;
 
         let repos: Vec<(i64, String)> = stmt
-            .query_map(params![filter_pattern], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .filter_map(Result::ok)
             .collect();
 
         let mut result = Vec::new();
 
         for (repo_id, repo_name) in repos {
-            let worktrees = self.get_worktrees_for_repo(repo_id)?;
-            let branches = self.get_branches_for_repo(repo_id, &filter_pattern)?;
-            if !branches.is_empty() {
+            // Skip repos that don't match filter (by name)
+            if has_filter && !repo_name.to_lowercase().contains(&filter.to_lowercase()) {
+                // Check if any branch matches - if not, skip this repo
+                let branches = self.get_branches_for_repo(
+                    repo_id,
+                    &filter_pattern,
+                    has_filter,
+                    seven_days_ago,
+                )?;
+                if branches.is_empty() {
+                    continue;
+                }
+                let worktrees = self.get_worktrees_for_repo(repo_id)?;
                 result.push(RepoData {
                     name: repo_name,
                     worktrees,
                     branches,
                 });
+            } else {
+                let branches = self.get_branches_for_repo(
+                    repo_id,
+                    &filter_pattern,
+                    has_filter,
+                    seven_days_ago,
+                )?;
+                if !branches.is_empty() {
+                    let worktrees = self.get_worktrees_for_repo(repo_id)?;
+                    result.push(RepoData {
+                        name: repo_name,
+                        worktrees,
+                        branches,
+                    });
+                }
             }
         }
 
@@ -269,22 +299,48 @@ impl Database {
         &self,
         repo_id: i64,
         filter_pattern: &str,
+        has_filter: bool,
+        seven_days_ago: i64,
     ) -> Result<Vec<BranchData>, Box<dyn Error>> {
-        // Get distinct branches that match filter
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT w.branch
-             FROM worktrees w
-             JOIN repos r ON w.repo_id = r.id
-             WHERE w.repo_id = ?1
-               AND w.branch IS NOT NULL
-               AND (LOWER(r.name) LIKE ?2 OR LOWER(w.branch) LIKE ?2)
-             ORDER BY w.branch",
+        // Get repo path for matching sessions
+        let repo_path: String = self.conn.query_row(
+            "SELECT path FROM repos WHERE id = ?1",
+            params![repo_id],
+            |row| row.get(0),
         )?;
 
-        let branches: Vec<String> = stmt
-            .query_map(params![repo_id, filter_pattern], |row| row.get(0))?
+        // Get branches from sessions table
+        // Without filter: only branches with sessions in last 7 days
+        // With filter: all branches matching filter
+        let branches: Vec<String> = if has_filter {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT s.git_branch
+                 FROM sessions s
+                 WHERE s.project_path LIKE ?1
+                   AND s.git_branch IS NOT NULL
+                   AND LOWER(s.git_branch) LIKE ?2
+                 ORDER BY s.git_branch",
+            )?;
+            stmt.query_map(params![format!("{}%", repo_path), filter_pattern], |row| {
+                row.get(0)
+            })?
             .filter_map(Result::ok)
-            .collect();
+            .collect()
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT s.git_branch
+                 FROM sessions s
+                 WHERE s.project_path LIKE ?1
+                   AND s.git_branch IS NOT NULL
+                   AND s.modified >= ?2
+                 ORDER BY s.git_branch",
+            )?;
+            stmt.query_map(params![format!("{}%", repo_path), seven_days_ago], |row| {
+                row.get(0)
+            })?
+            .filter_map(Result::ok)
+            .collect()
+        };
 
         let mut result = Vec::new();
         for branch in branches {

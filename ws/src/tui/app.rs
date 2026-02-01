@@ -21,13 +21,13 @@ pub struct ConfirmDialog {
 pub struct RepoNode {
     pub data: RepoData,
     pub branches: Vec<BranchNode>,
-    pub worktree_states: Vec<WorktreeState>,  // Runtime state for each worktree
+    pub worktree_states: Vec<WorktreeState>, // Runtime state for each worktree
     pub expanded: bool,
 }
 
 pub struct BranchNode {
-    pub selected_worktree_idx: usize,         // Index into repo's worktrees
-    pub selected_sessions: HashSet<String>,   // UUIDs of selected sessions
+    pub selected_worktree_idx: usize, // Index into repo's worktrees
+    pub selected_sessions: HashSet<String>, // UUIDs of selected sessions
     pub expanded: bool,
 }
 
@@ -307,9 +307,7 @@ impl App {
                 }
             }
             SelectedItem::Session(idx) => {
-                let sessions_len = self
-                    .current_branch_data()
-                    .map_or(0, |bd| bd.sessions.len());
+                let sessions_len = self.current_branch_data().map_or(0, |bd| bd.sessions.len());
                 if idx < sessions_len - 1 {
                     self.selected_item = SelectedItem::Session(idx + 1);
                 } else if let Some(repo) = self.current_repo() {

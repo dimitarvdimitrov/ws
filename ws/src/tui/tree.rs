@@ -18,15 +18,50 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
         let repo_selected = is_selected_repo && app.selected_item == SelectedItem::Repo;
         let expand_char = if repo.expanded { "▼" } else { "▶" };
 
-        let repo_line = Line::from(vec![Span::styled(
-            format!("{} {}", expand_char, repo.data.name),
+        // Build worktree dots for repo line
+        let worktree_spans: Vec<Span> = repo
+            .data
+            .worktrees
+            .iter()
+            .enumerate()
+            .map(|(wt_idx, wt)| {
+                let state = &repo.worktree_states[wt_idx];
+
+                // Color logic: red if dirty, yellow if WIP, white otherwise
+                let style = if state.is_dirty {
+                    Style::default().fg(Color::Red)
+                } else if state.has_wip {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+
+                // Show [name] for selected worktree when repo is selected,
+                // otherwise show dot (filled if has a branch checked out)
+                if repo_selected {
+                    Span::styled(format!("[{}] ", wt.name), style)
+                } else {
+                    let symbol = if wt.checked_out_branch.is_some() {
+                        "●"
+                    } else {
+                        "○"
+                    };
+                    Span::styled(format!("{} ", symbol), style)
+                }
+            })
+            .collect();
+
+        let mut repo_spans = vec![Span::styled(
+            format!("{} {} ", expand_char, repo.data.name),
             if repo_selected {
                 Style::default().bold().fg(Color::White)
             } else {
                 Style::default().fg(Color::Cyan)
             },
-        )]);
+        )];
+        repo_spans.extend(worktree_spans);
 
+        let repo_line = Line::from(repo_spans);
         lines.push(if repo_selected {
             repo_line.patch_style(Style::default().bg(Color::DarkGray))
         } else {
@@ -49,7 +84,7 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                     .worktrees
                     .iter()
                     .enumerate()
-                    .map(|(wt_idx, wt)| {
+                    .flat_map(|(wt_idx, wt)| {
                         let is_selected_wt = wt_idx == branch.selected_worktree_idx;
                         let state = &repo.worktree_states[wt_idx];
 
@@ -57,7 +92,7 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                         // - Green: this branch IS checked out in this worktree
                         // - Red: worktree is dirty
                         // - Yellow: worktree has WIP commit
-                        // - Gray: otherwise
+                        // - White: otherwise
                         let is_checked_out = wt
                             .checked_out_branch
                             .as_ref()
@@ -73,13 +108,16 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                             Style::default().fg(Color::White)
                         };
 
-                        // Show [name] for selected worktree when branch row is selected,
-                        // otherwise show dot
+                        let symbol = if is_selected_wt { "●" } else { "○" };
+
+                        // Show dot, then [name] for selected worktree when branch is selected
                         if is_selected_wt && is_selected_branch {
-                            Span::styled(format!("[{}] ", wt.name), style)
+                            vec![
+                                Span::styled(format!("{}", symbol), style),
+                                Span::styled(format!("[{}] ", wt.name), style),
+                            ]
                         } else {
-                            let symbol = if is_selected_wt { "●" } else { "○" };
-                            Span::styled(format!("{} ", symbol), style)
+                            vec![Span::styled(format!("{} ", symbol), style)]
                         }
                     })
                     .collect();
