@@ -161,7 +161,7 @@ impl App {
                 self.cycle_worktree(1);
                 Action::Continue
             }
-            KeyCode::Char(' ') if self.filter.is_empty() => {
+            KeyCode::Char(' ') => {
                 self.toggle_session();
                 Action::Continue
             }
