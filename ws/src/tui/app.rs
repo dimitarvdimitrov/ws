@@ -97,10 +97,22 @@ impl App {
                 let branches: Vec<BranchNode> = data
                     .branches
                     .iter()
-                    .map(|_branch_data| BranchNode {
-                        selected_worktree_idx: 0,
-                        selected_sessions: HashSet::new(),
-                        expanded: true,
+                    .map(|branch_data| {
+                        // Pre-select worktree where this branch is checked out
+                        let selected_worktree_idx = data
+                            .worktrees
+                            .iter()
+                            .position(|wt| {
+                                wt.checked_out_branch
+                                    .as_ref()
+                                    .map_or(false, |b| b == &branch_data.branch)
+                            })
+                            .unwrap_or(0);
+                        BranchNode {
+                            selected_worktree_idx,
+                            selected_sessions: HashSet::new(),
+                            expanded: true,
+                        }
                     })
                     .collect();
 
