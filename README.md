@@ -28,6 +28,12 @@ ws <filter>    # Launch TUI with initial filter text
 - **Space** - Toggle session selection
 - **Enter** - Launch selected sessions in Warp
 
+## State
+
+SQLite database at `~/.config/ws/ws.db` stores:
+- Git repos and worktrees discovered during scan
+- Claude session metadata (paths, timestamps)
+
 ## Configuration
 
 Config file: `~/.config/ws/config.toml`
