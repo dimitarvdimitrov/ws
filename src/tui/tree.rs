@@ -151,35 +151,6 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
 
                         let checkbox = if is_checked { "[x]" } else { "[ ]" };
 
-                        // Build worktree dots for session line
-                        let session_worktree_spans: Vec<Span> = repo
-                            .data
-                            .worktrees
-                            .iter()
-                            .enumerate()
-                            .map(|(wt_idx, wt)| {
-                                let state = &repo.worktree_states[wt_idx];
-
-                                // Color logic: red if dirty, yellow if WIP, white otherwise
-                                let style = if state.is_dirty {
-                                    Style::default().fg(Color::Red)
-                                } else if state.has_wip {
-                                    Style::default().fg(Color::Yellow)
-                                } else {
-                                    Style::default().fg(Color::White)
-                                };
-
-                                // Filled dot if session's project_path matches this worktree
-                                let wt_path_str = wt.path.to_string_lossy();
-                                let matches = session.project_path == wt_path_str
-                                    || session
-                                        .project_path
-                                        .starts_with(&format!("{}/", wt_path_str));
-                                let symbol = if matches { "●" } else { "○" };
-                                Span::styled(format!("{} ", symbol), style)
-                            })
-                            .collect();
-
                         let summary = session
                             .summary
                             .as_ref()
@@ -211,14 +182,11 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                             Style::default().fg(Color::DarkGray)
                         };
 
-                        let mut session_spans = vec![Span::styled(
-                            format!("        {} ", checkbox),
-                            summary_style,
-                        )];
-                        session_spans.extend(session_worktree_spans);
-                        session_spans.push(Span::styled(summary, summary_style));
-                        session_spans
-                            .push(Span::styled(format!(" • {}", metadata), metadata_style));
+                        let session_spans = vec![
+                            Span::styled(format!("        {} ", checkbox), summary_style),
+                            Span::styled(summary, summary_style),
+                            Span::styled(format!(" • {}", metadata), metadata_style),
+                        ];
 
                         let session_line = Line::from(session_spans);
 
