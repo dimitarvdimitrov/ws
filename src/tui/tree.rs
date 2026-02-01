@@ -172,7 +172,9 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                                 // Filled dot if session's project_path matches this worktree
                                 let wt_path_str = wt.path.to_string_lossy();
                                 let matches = session.project_path == wt_path_str
-                                    || session.project_path.starts_with(&format!("{}/", wt_path_str));
+                                    || session
+                                        .project_path
+                                        .starts_with(&format!("{}/", wt_path_str));
                                 let symbol = if matches { "●" } else { "○" };
                                 Span::styled(format!("{} ", symbol), style)
                             })
@@ -209,15 +211,14 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                             Style::default().fg(Color::DarkGray)
                         };
 
-                        let mut session_spans = vec![
-                            Span::styled(
-                                format!("        {} ", checkbox),
-                                summary_style,
-                            ),
-                        ];
+                        let mut session_spans = vec![Span::styled(
+                            format!("        {} ", checkbox),
+                            summary_style,
+                        )];
                         session_spans.extend(session_worktree_spans);
                         session_spans.push(Span::styled(summary, summary_style));
-                        session_spans.push(Span::styled(format!(" • {}", metadata), metadata_style));
+                        session_spans
+                            .push(Span::styled(format!(" • {}", metadata), metadata_style));
 
                         let session_line = Line::from(session_spans);
 
@@ -232,7 +233,7 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    let paragraph = Paragraph::new(lines);
+    let paragraph = Paragraph::new(lines).scroll((app.scroll_offset, 0));
     f.render_widget(paragraph, area);
 }
 
