@@ -309,17 +309,18 @@ impl Database {
             |row| row.get(0),
         )?;
 
-        // Get branches from sessions table
+        // Get branches from sessions table, sorted by most recent session
         // Without filter: only branches with sessions in last 7 days
         // With filter: all branches matching filter
         let branches: Vec<String> = if has_filter {
             let mut stmt = self.conn.prepare(
-                "SELECT DISTINCT s.git_branch
+                "SELECT s.git_branch, MAX(s.modified) as last_modified
                  FROM sessions s
                  WHERE s.project_path LIKE ?1
                    AND s.git_branch IS NOT NULL
                    AND LOWER(s.git_branch) LIKE ?2
-                 ORDER BY s.git_branch",
+                 GROUP BY s.git_branch
+                 ORDER BY last_modified DESC",
             )?;
             stmt.query_map(params![format!("{}%", repo_path), filter_pattern], |row| {
                 row.get(0)
@@ -328,12 +329,13 @@ impl Database {
             .collect()
         } else {
             let mut stmt = self.conn.prepare(
-                "SELECT DISTINCT s.git_branch
+                "SELECT s.git_branch, MAX(s.modified) as last_modified
                  FROM sessions s
                  WHERE s.project_path LIKE ?1
                    AND s.git_branch IS NOT NULL
                    AND s.modified >= ?2
-                 ORDER BY s.git_branch",
+                 GROUP BY s.git_branch
+                 ORDER BY last_modified DESC",
             )?;
             stmt.query_map(params![format!("{}%", repo_path), seven_days_ago], |row| {
                 row.get(0)
