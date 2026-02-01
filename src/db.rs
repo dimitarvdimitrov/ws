@@ -317,12 +317,12 @@ impl Database {
         // With filter: all branches matching filter
         let branches: Vec<String> = if has_filter {
             let mut stmt = self.conn.prepare(
-                "SELECT s.git_branch, MAX(s.modified) as last_modified
+                "SELECT CASE WHEN s.git_branch IS NULL OR s.git_branch = '' THEN '(no branch)' ELSE s.git_branch END as branch,
+                        MAX(s.modified) as last_modified
                  FROM sessions s
                  WHERE s.project_path LIKE ?1
-                   AND s.git_branch IS NOT NULL
-                   AND LOWER(s.git_branch) LIKE ?2
-                 GROUP BY s.git_branch
+                   AND LOWER(COALESCE(s.git_branch, '')) LIKE ?2
+                 GROUP BY branch
                  ORDER BY last_modified DESC",
             )?;
             stmt.query_map(params![format!("{}%", repo_path), filter_pattern], |row| {
@@ -332,12 +332,12 @@ impl Database {
             .collect()
         } else {
             let mut stmt = self.conn.prepare(
-                "SELECT s.git_branch, MAX(s.modified) as last_modified
+                "SELECT CASE WHEN s.git_branch IS NULL OR s.git_branch = '' THEN '(no branch)' ELSE s.git_branch END as branch,
+                        MAX(s.modified) as last_modified
                  FROM sessions s
                  WHERE s.project_path LIKE ?1
-                   AND s.git_branch IS NOT NULL
                    AND s.modified >= ?2
-                 GROUP BY s.git_branch
+                 GROUP BY branch
                  ORDER BY last_modified DESC",
             )?;
             stmt.query_map(params![format!("{}%", repo_path), seven_days_ago], |row| {
@@ -361,15 +361,15 @@ impl Database {
         repo_path: &str,
         branch: &str,
     ) -> Result<Vec<SessionData>, Box<dyn Error>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT uuid, project_path, summary, first_prompt, modified, message_count
-             FROM sessions
-             WHERE git_branch = ?1 AND project_path LIKE ?2
-             ORDER BY modified DESC",
-        )?;
-
-        let sessions = stmt
-            .query_map(params![branch, format!("{}%", repo_path)], |row| {
+        // Handle "(no branch)" specially - match NULL or empty git_branch
+        let sessions = if branch == "(no branch)" {
+            let mut stmt = self.conn.prepare(
+                "SELECT uuid, project_path, summary, first_prompt, modified, message_count
+                 FROM sessions
+                 WHERE (git_branch IS NULL OR git_branch = '') AND project_path LIKE ?1
+                 ORDER BY modified DESC",
+            )?;
+            stmt.query_map(params![format!("{}%", repo_path)], |row| {
                 Ok(SessionData {
                     uuid: row.get(0)?,
                     project_path: row.get(1)?,
@@ -380,7 +380,27 @@ impl Database {
                 })
             })?
             .filter_map(Result::ok)
-            .collect();
+            .collect()
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT uuid, project_path, summary, first_prompt, modified, message_count
+                 FROM sessions
+                 WHERE git_branch = ?1 AND project_path LIKE ?2
+                 ORDER BY modified DESC",
+            )?;
+            stmt.query_map(params![branch, format!("{}%", repo_path)], |row| {
+                Ok(SessionData {
+                    uuid: row.get(0)?,
+                    project_path: row.get(1)?,
+                    summary: row.get(2)?,
+                    first_prompt: row.get(3)?,
+                    modified: row.get(4)?,
+                    message_count: row.get(5)?,
+                })
+            })?
+            .filter_map(Result::ok)
+            .collect()
+        };
 
         Ok(sessions)
     }
