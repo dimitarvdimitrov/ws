@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn generate_editor_config(
     worktree_path: &PathBuf,
     editor: &str,
+    pre_commands: &[String],
 ) -> Result<PathBuf, Box<dyn Error>> {
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let config_name = format!("ws-main-{}", timestamp);
@@ -18,6 +19,13 @@ pub fn generate_editor_config(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "worktree".to_string());
 
+    // Build commands list: pre_commands first, then editor
+    let mut commands = String::new();
+    for cmd in pre_commands {
+        commands.push_str(&format!("            - exec: {}\n", cmd));
+    }
+    commands.push_str(&format!("            - exec: {} .", editor));
+
     let yaml = format!(
         r#"---
 name: {}
@@ -27,12 +35,12 @@ windows:
         layout:
           cwd: {}
           commands:
-            - exec: {} .
+{}
 "#,
         config_name,
         worktree_name,
         worktree_path.display(),
-        editor
+        commands
     );
 
     fs::write(&config_path, yaml)?;

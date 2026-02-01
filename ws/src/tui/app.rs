@@ -1,11 +1,10 @@
 use crate::actions;
 use crate::config::Config;
 use crate::db::{BranchData, Database, RepoData};
-use crate::scanner::git::{self, Worktree};
+use crate::scanner::git::Worktree;
 use crossterm::event::KeyCode;
 use std::collections::HashSet;
 use std::error::Error;
-use std::path::PathBuf;
 
 pub enum Action {
     Continue,
@@ -15,7 +14,11 @@ pub enum Action {
 #[derive(Clone)]
 pub struct ConfirmDialog {
     pub message: String,
-    pub worktree_path: PathBuf,
+}
+
+#[derive(Clone, Default)]
+pub struct PendingLaunch {
+    pub pre_commands: Vec<String>,
 }
 
 pub struct RepoNode {
@@ -46,6 +49,7 @@ pub struct App {
     pub selected_branch_idx: usize,
     pub selected_item: SelectedItem,
     pub confirm_dialog: Option<ConfirmDialog>,
+    pub pending_launch: PendingLaunch,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -66,6 +70,7 @@ impl App {
             selected_branch_idx: 0,
             selected_item: SelectedItem::Repo,
             confirm_dialog: None,
+            pending_launch: PendingLaunch::default(),
         };
 
         app.refresh_data()?;
@@ -190,12 +195,12 @@ impl App {
     fn handle_confirm_key(&mut self, key: KeyCode) -> Action {
         match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                if let Some(ref dialog) = self.confirm_dialog {
-                    // Create WIP commit
-                    let _ = git::create_wip_commit(&dialog.worktree_path);
-                }
+                // Add WIP commit command
+                self.pending_launch
+                    .pre_commands
+                    .push("git add -A && git commit -m 'WIP: paused work'".to_string());
                 self.confirm_dialog = None;
-                // Re-check and proceed with launch
+                // Proceed with launch
                 self.do_launch()
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -394,38 +399,46 @@ impl App {
                 Action::Continue
             }
             SelectedItem::Branch | SelectedItem::Session(_) => {
-                // Get worktree and state from repo
-                let repo = match self.current_repo() {
-                    Some(r) => r,
-                    None => return Action::Continue,
+                // Extract needed state before modifying self
+                let (has_wip, is_dirty, worktree_name) = {
+                    let repo = match self.current_repo() {
+                        Some(r) => r,
+                        None => return Action::Continue,
+                    };
+
+                    if repo.data.worktrees.is_empty() {
+                        return Action::Continue;
+                    }
+
+                    let branch = match self.current_branch() {
+                        Some(b) => b,
+                        None => return Action::Continue,
+                    };
+
+                    let wt_idx = branch.selected_worktree_idx;
+                    let state = &repo.worktree_states[wt_idx];
+                    let worktree = &repo.data.worktrees[wt_idx];
+
+                    (state.has_wip, state.is_dirty, worktree.name.clone())
                 };
 
-                if repo.data.worktrees.is_empty() {
-                    return Action::Continue;
-                }
+                // Reset pending commands
+                self.pending_launch = PendingLaunch::default();
 
-                let branch = match self.current_branch() {
-                    Some(b) => b,
-                    None => return Action::Continue,
-                };
-
-                let wt_idx = branch.selected_worktree_idx;
-                let worktree = &repo.data.worktrees[wt_idx];
-                let state = &repo.worktree_states[wt_idx];
-
-                // If has WIP commit, undo it first
-                if state.has_wip {
-                    let _ = git::undo_wip_commit(&worktree.path);
+                // If has WIP commit, add undo command
+                if has_wip {
+                    self.pending_launch
+                        .pre_commands
+                        .push("git reset --soft HEAD~1".to_string());
                 }
 
                 // If dirty, show confirmation dialog
-                if state.is_dirty {
+                if is_dirty {
                     self.confirm_dialog = Some(ConfirmDialog {
                         message: format!(
                             "Worktree '{}' has uncommitted changes.\nCreate WIP commit?",
-                            worktree.name
+                            worktree_name
                         ),
-                        worktree_path: worktree.path.clone(),
                     });
                     return Action::Continue;
                 }
@@ -456,8 +469,12 @@ impl App {
 
         let worktree = &repo.data.worktrees[branch.selected_worktree_idx];
 
-        // Generate and launch editor config
-        let editor_config = actions::generate_editor_config(&worktree.path, &self.config.editor)?;
+        // Generate and launch editor config with any pending git commands
+        let editor_config = actions::generate_editor_config(
+            &worktree.path,
+            &self.config.editor,
+            &self.pending_launch.pre_commands,
+        )?;
         actions::open_config(&editor_config)?;
 
         // Generate and launch session configs

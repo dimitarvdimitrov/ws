@@ -147,38 +147,3 @@ fn parse_worktree_list(repo_path: &Path) -> Result<Vec<Worktree>, Box<dyn Error>
 
     Ok(worktrees)
 }
-
-/// Create WIP commit in the given worktree
-pub fn create_wip_commit(worktree_path: &Path) -> Result<(), Box<dyn Error>> {
-    let path_str = worktree_path.to_str().ok_or("Invalid path")?;
-
-    // Stage all changes
-    let status = Command::new("git")
-        .args(["-C", path_str, "add", "-A"])
-        .status()?;
-    if !status.success() {
-        return Err("Failed to stage changes".into());
-    }
-
-    // Commit (ignore error if nothing to commit)
-    let _ = Command::new("git")
-        .args(["-C", path_str, "commit", "-m", "WIP: paused work"])
-        .status();
-
-    Ok(())
-}
-
-/// Undo WIP commit (soft reset)
-pub fn undo_wip_commit(worktree_path: &Path) -> Result<(), Box<dyn Error>> {
-    let path_str = worktree_path.to_str().ok_or("Invalid path")?;
-
-    let status = Command::new("git")
-        .args(["-C", path_str, "reset", "--soft", "HEAD~1"])
-        .status()?;
-
-    if !status.success() {
-        return Err("Failed to undo WIP commit".into());
-    }
-
-    Ok(())
-}
