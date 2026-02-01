@@ -70,7 +70,7 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                         } else if is_checked_out {
                             Style::default().fg(Color::Green)
                         } else {
-                            Style::default().fg(Color::DarkGray)
+                            Style::default().fg(Color::White)
                         };
 
                         // Show [name] for selected worktree when branch row is selected,
