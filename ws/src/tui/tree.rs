@@ -40,31 +40,62 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                 let branch_selected =
                     is_selected_branch && app.selected_item == SelectedItem::Branch;
 
-                // Build worktree status indicator
-                let state = &branch.worktree_state;
-                let status_style = if state.is_dirty {
-                    Style::default().fg(Color::Red)
-                } else if state.has_wip {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Green)
-                };
-
+                let branch_data = &repo.data.branches[branch_idx];
                 let expand_char = if branch.expanded { "▼" } else { "▶" };
 
-                let branch_spans = vec![
+                // Build worktree selector - show ALL worktrees in repo
+                let worktree_spans: Vec<Span> = repo
+                    .data
+                    .worktrees
+                    .iter()
+                    .enumerate()
+                    .map(|(wt_idx, wt)| {
+                        let is_selected_wt = wt_idx == branch.selected_worktree_idx;
+                        let state = &repo.worktree_states[wt_idx];
+
+                        // Color logic:
+                        // - Green: this branch IS checked out in this worktree
+                        // - Red: worktree is dirty
+                        // - Yellow: worktree has WIP commit
+                        // - Gray: otherwise
+                        let is_checked_out = wt
+                            .checked_out_branch
+                            .as_ref()
+                            .map_or(false, |b| b == &branch_data.branch);
+
+                        let style = if state.is_dirty {
+                            Style::default().fg(Color::Red)
+                        } else if state.has_wip {
+                            Style::default().fg(Color::Yellow)
+                        } else if is_checked_out {
+                            Style::default().fg(Color::Green)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        };
+
+                        // Show [name] for selected worktree when branch row is selected,
+                        // otherwise show dot
+                        if is_selected_wt && is_selected_branch {
+                            Span::styled(format!("[{}] ", wt.name), style)
+                        } else {
+                            let symbol = if is_selected_wt { "●" } else { "○" };
+                            Span::styled(format!("{} ", symbol), style)
+                        }
+                    })
+                    .collect();
+
+                let mut branch_spans = vec![
                     Span::raw("    "),
                     Span::styled(
-                        format!("{} {}", expand_char, branch.data.branch),
+                        format!("{} {} ", expand_char, branch_data.branch),
                         if branch_selected {
                             Style::default().bold().fg(Color::White)
                         } else {
                             Style::default()
                         },
                     ),
-                    Span::raw(" "),
-                    Span::styled("●", status_style),
                 ];
+                branch_spans.extend(worktree_spans);
 
                 let branch_line = Line::from(branch_spans);
                 lines.push(if branch_selected {
@@ -75,7 +106,7 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
 
                 // Sessions (if expanded)
                 if branch.expanded {
-                    for (session_idx, session) in branch.data.sessions.iter().enumerate() {
+                    for (session_idx, session) in branch_data.sessions.iter().enumerate() {
                         let session_selected = is_selected_branch
                             && app.selected_item == SelectedItem::Session(session_idx);
                         let is_checked = branch.selected_sessions.contains(&session.uuid);

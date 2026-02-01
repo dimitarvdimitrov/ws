@@ -11,20 +11,21 @@ pub struct Database {
 #[derive(Debug, Clone)]
 pub struct RepoData {
     pub name: String,
+    pub worktrees: Vec<WorktreeInfo>,  // All worktrees in repo
     pub branches: Vec<BranchData>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorktreeInfo {
+    pub path: PathBuf,
+    pub name: String,                        // folder name for display
+    pub checked_out_branch: Option<String>,  // which branch is checked out
 }
 
 #[derive(Debug, Clone)]
 pub struct BranchData {
     pub branch: String,
-    pub worktree: WorktreeData,
     pub sessions: Vec<SessionData>,
-}
-
-#[derive(Debug, Clone)]
-pub struct WorktreeData {
-    pub path: PathBuf,
-    pub branch: String,
 }
 
 #[derive(Debug, Clone)]
@@ -219,10 +220,12 @@ impl Database {
         let mut result = Vec::new();
 
         for (repo_id, repo_name) in repos {
+            let worktrees = self.get_worktrees_for_repo(repo_id)?;
             let branches = self.get_branches_for_repo(repo_id, &filter_pattern)?;
             if !branches.is_empty() {
                 result.push(RepoData {
                     name: repo_name,
+                    worktrees,
                     branches,
                 });
             }
@@ -231,14 +234,45 @@ impl Database {
         Ok(result)
     }
 
+    /// Get all worktrees for a repo (unfiltered)
+    fn get_worktrees_for_repo(&self, repo_id: i64) -> Result<Vec<WorktreeInfo>, Box<dyn Error>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT w.path, w.branch
+             FROM worktrees w
+             WHERE w.repo_id = ?1
+             ORDER BY w.path",
+        )?;
+
+        let worktrees = stmt
+            .query_map(params![repo_id], |row| {
+                let path_str: String = row.get(0)?;
+                let branch: Option<String> = row.get(1)?;
+                let path = PathBuf::from(&path_str);
+                let name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| path_str.clone());
+                Ok(WorktreeInfo {
+                    path,
+                    name,
+                    checked_out_branch: branch,
+                })
+            })?
+            .filter_map(Result::ok)
+            .collect();
+
+        Ok(worktrees)
+    }
+
     fn get_branches_for_repo(
         &self,
         repo_id: i64,
         filter_pattern: &str,
     ) -> Result<Vec<BranchData>, Box<dyn Error>> {
-        // Get branches for this repo, filtered
+        // Get distinct branches that match filter
         let mut stmt = self.conn.prepare(
-            "SELECT w.path, w.branch
+            "SELECT DISTINCT w.branch
              FROM worktrees w
              JOIN repos r ON w.repo_id = r.id
              WHERE w.repo_id = ?1
@@ -247,25 +281,15 @@ impl Database {
              ORDER BY w.branch",
         )?;
 
-        let worktrees: Vec<(String, String)> = stmt
-            .query_map(params![repo_id, filter_pattern], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
+        let branches: Vec<String> = stmt
+            .query_map(params![repo_id, filter_pattern], |row| row.get(0))?
             .filter_map(Result::ok)
             .collect();
 
         let mut result = Vec::new();
-
-        for (wt_path, branch) in worktrees {
+        for branch in branches {
             let sessions = self.get_sessions_for_branch(&branch)?;
-            result.push(BranchData {
-                branch: branch.clone(),
-                worktree: WorktreeData {
-                    path: PathBuf::from(wt_path),
-                    branch,
-                },
-                sessions,
-            });
+            result.push(BranchData { branch, sessions });
         }
 
         Ok(result)
