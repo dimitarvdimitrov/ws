@@ -349,23 +349,27 @@ impl Database {
 
         let mut result = Vec::new();
         for branch in branches {
-            let sessions = self.get_sessions_for_branch(&branch)?;
+            let sessions = self.get_sessions_for_repo_branch(&repo_path, &branch)?;
             result.push(BranchData { branch, sessions });
         }
 
         Ok(result)
     }
 
-    fn get_sessions_for_branch(&self, branch: &str) -> Result<Vec<SessionData>, Box<dyn Error>> {
+    fn get_sessions_for_repo_branch(
+        &self,
+        repo_path: &str,
+        branch: &str,
+    ) -> Result<Vec<SessionData>, Box<dyn Error>> {
         let mut stmt = self.conn.prepare(
             "SELECT uuid, project_path, summary, first_prompt, modified, message_count
              FROM sessions
-             WHERE git_branch = ?1
+             WHERE git_branch = ?1 AND project_path LIKE ?2
              ORDER BY modified DESC",
         )?;
 
         let sessions = stmt
-            .query_map(params![branch], |row| {
+            .query_map(params![branch, format!("{}%", repo_path)], |row| {
                 Ok(SessionData {
                     uuid: row.get(0)?,
                     project_path: row.get(1)?,
