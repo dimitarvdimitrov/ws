@@ -69,9 +69,16 @@ windows:
     Ok(config_path)
 }
 
-/// Open a Warp launch config
+/// Open a Warp launch config using warp:// URI scheme
 pub fn open_config(config_path: &PathBuf) -> Result<(), Box<dyn Error>> {
-    Command::new("open").arg(config_path).spawn()?;
+    // Extract the config name (filename without .yaml extension)
+    let config_name = config_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid config path")?;
+
+    let uri = format!("warp://launch/{}", config_name);
+    Command::new("open").arg(&uri).spawn()?;
     Ok(())
 }
 
