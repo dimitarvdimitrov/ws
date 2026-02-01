@@ -154,17 +154,41 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                             .summary
                             .as_ref()
                             .or(session.first_prompt.as_ref())
-                            .map(|s| truncate_str(s, 50))
+                            .map(|s| truncate_str(s, 40))
                             .unwrap_or_else(|| "No summary".to_string());
 
-                        let session_line = Line::from(vec![Span::styled(
-                            format!("        {} {}", checkbox, summary),
-                            if session_selected {
-                                Style::default().fg(Color::Cyan)
-                            } else {
-                                Style::default().fg(Color::DarkGray)
-                            },
-                        )]);
+                        // Format metadata: message count and relative time
+                        let msg_count = session
+                            .message_count
+                            .map(|c| format!("{} msg", c))
+                            .unwrap_or_default();
+                        let relative_time = format_relative_time(session.modified);
+
+                        let metadata = if msg_count.is_empty() {
+                            relative_time
+                        } else {
+                            format!("{} • {}", msg_count, relative_time)
+                        };
+
+                        let summary_style = if session_selected {
+                            Style::default().fg(Color::Cyan)
+                        } else {
+                            Style::default().fg(Color::Gray)
+                        };
+                        let metadata_style = if session_selected {
+                            Style::default().fg(Color::Gray)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        };
+
+                        let session_line = Line::from(vec![
+                            Span::styled(
+                                format!("        {} ", checkbox),
+                                summary_style,
+                            ),
+                            Span::styled(summary, summary_style),
+                            Span::styled(format!(" • {}", metadata), metadata_style),
+                        ]);
 
                         lines.push(if session_selected {
                             session_line.patch_style(Style::default().bg(Color::DarkGray))
@@ -188,5 +212,34 @@ fn truncate_str(s: &str, max_len: usize) -> String {
         first_line.to_string()
     } else {
         format!("{}...", &first_line[..max_len - 3])
+    }
+}
+
+fn format_relative_time(timestamp_ms: i64) -> String {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    let diff_ms = now_ms - timestamp_ms;
+    if diff_ms < 0 {
+        return "just now".to_string();
+    }
+
+    let minutes = diff_ms / (1000 * 60);
+    let hours = minutes / 60;
+    let days = hours / 24;
+    let weeks = days / 7;
+
+    if minutes < 1 {
+        "just now".to_string()
+    } else if minutes < 60 {
+        format!("{} min ago", minutes)
+    } else if hours < 24 {
+        format!("{} hours ago", hours)
+    } else if days < 7 {
+        format!("{} days ago", days)
+    } else {
+        format!("{} weeks ago", weeks)
     }
 }

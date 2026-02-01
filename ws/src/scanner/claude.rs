@@ -11,6 +11,7 @@ pub struct Session {
     pub summary: Option<String>,
     pub first_prompt: Option<String>,
     pub modified: i64,
+    pub message_count: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -30,6 +31,8 @@ struct SessionIndexEntry {
     #[serde(rename = "firstPrompt")]
     first_prompt: Option<String>,
     modified: String, // ISO 8601 date string
+    #[serde(rename = "messageCount")]
+    message_count: Option<i64>,
 }
 
 pub fn scan_sessions() -> Result<Vec<Session>, Box<dyn Error>> {
@@ -79,6 +82,7 @@ fn parse_sessions_index(path: &PathBuf) -> Result<Vec<Session>, Box<dyn Error>> 
                 summary: e.summary,
                 first_prompt: e.first_prompt,
                 modified,
+                message_count: e.message_count,
             }
         })
         .collect();

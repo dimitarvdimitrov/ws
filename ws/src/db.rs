@@ -33,6 +33,8 @@ pub struct SessionData {
     pub uuid: String,
     pub summary: Option<String>,
     pub first_prompt: Option<String>,
+    pub modified: i64,
+    pub message_count: Option<i64>,
 }
 
 impl Database {
@@ -81,13 +83,28 @@ impl Database {
                 git_branch TEXT,
                 summary TEXT,
                 first_prompt TEXT,
-                modified INTEGER NOT NULL
+                modified INTEGER NOT NULL,
+                message_count INTEGER
             );
 
             CREATE INDEX IF NOT EXISTS idx_sessions_branch ON sessions(git_branch);
             CREATE INDEX IF NOT EXISTS idx_worktrees_branch ON worktrees(branch);
             "#,
         )?;
+
+        // Migration: add message_count column if it doesn't exist
+        let has_message_count: bool = self
+            .conn
+            .prepare("SELECT message_count FROM sessions LIMIT 0")
+            .is_ok();
+
+        if !has_message_count {
+            self.conn.execute(
+                "ALTER TABLE sessions ADD COLUMN message_count INTEGER",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -132,21 +149,23 @@ impl Database {
 
     pub fn upsert_session(&mut self, session: &Session) -> Result<(), Box<dyn Error>> {
         self.conn.execute(
-            "INSERT INTO sessions (uuid, project_path, git_branch, summary, first_prompt, modified)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO sessions (uuid, project_path, git_branch, summary, first_prompt, modified, message_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(uuid) DO UPDATE SET
                 project_path = excluded.project_path,
                 git_branch = excluded.git_branch,
                 summary = excluded.summary,
                 first_prompt = excluded.first_prompt,
-                modified = excluded.modified",
+                modified = excluded.modified,
+                message_count = excluded.message_count",
             params![
                 session.uuid,
                 session.project_path,
                 session.git_branch,
                 session.summary,
                 session.first_prompt,
-                session.modified
+                session.modified,
+                session.message_count
             ],
         )?;
         Ok(())
@@ -355,7 +374,7 @@ impl Database {
 
     fn get_sessions_for_branch(&self, branch: &str) -> Result<Vec<SessionData>, Box<dyn Error>> {
         let mut stmt = self.conn.prepare(
-            "SELECT uuid, summary, first_prompt
+            "SELECT uuid, summary, first_prompt, modified, message_count
              FROM sessions
              WHERE git_branch = ?1
              ORDER BY modified DESC",
@@ -367,6 +386,8 @@ impl Database {
                     uuid: row.get(0)?,
                     summary: row.get(1)?,
                     first_prompt: row.get(2)?,
+                    modified: row.get(3)?,
+                    message_count: row.get(4)?,
                 })
             })?
             .filter_map(Result::ok)
