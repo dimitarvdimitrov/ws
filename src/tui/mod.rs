@@ -29,7 +29,7 @@ pub fn run(db: Database, config: Config, filter: String) -> Result<(), Box<dyn E
 
     // Main loop
     loop {
-        terminal.draw(|f| ui(f, &app))?;
+        terminal.draw(|f| ui(f, &mut app))?;
 
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
@@ -70,7 +70,7 @@ pub fn run(db: Database, config: Config, filter: String) -> Result<(), Box<dyn E
     Ok(())
 }
 
-fn ui(f: &mut Frame, app: &App) {
+fn ui(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -101,7 +101,7 @@ fn ui(f: &mut Frame, app: &App) {
     let help_text = if app.confirm_dialog.is_some() {
         " y/n confirm  Esc cancel "
     } else {
-        " ↑↓ navigate  ←→ switch worktree  Space select session  Enter expand/launch  Ctrl+C quit "
+        " ↑↓ navigate  ←→ switch worktree  Space select session  Enter expand/launch  Ctrl+C quit"
     };
     let help = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(help, chunks[2]);

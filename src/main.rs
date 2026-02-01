@@ -1,6 +1,7 @@
 mod actions;
 mod config;
 mod db;
+mod migrate;
 mod scanner;
 mod tui;
 

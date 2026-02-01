@@ -1,10 +1,12 @@
 use crate::actions;
 use crate::config::Config;
 use crate::db::{BranchData, Database, RepoData};
+use crate::migrate;
 use crate::scanner::git::Worktree;
 use crossterm::event::KeyCode;
 use std::collections::HashSet;
 use std::error::Error;
+use std::path::PathBuf;
 
 pub enum Action {
     Continue,
@@ -50,6 +52,7 @@ pub struct App {
     pub selected_item: SelectedItem,
     pub confirm_dialog: Option<ConfirmDialog>,
     pub pending_launch: PendingLaunch,
+    pub scroll_offset: u16,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -71,6 +74,7 @@ impl App {
             selected_item: SelectedItem::Repo,
             confirm_dialog: None,
             pending_launch: PendingLaunch::default(),
+            scroll_offset: 0,
         };
 
         app.refresh_data()?;
@@ -485,6 +489,12 @@ impl App {
 
         for uuid in &branch.selected_sessions {
             if let Some(session) = branch_data.sessions.iter().find(|s| &s.uuid == uuid) {
+                // Migrate session to target worktree if needed
+                let source_path = PathBuf::from(&session.project_path);
+                if source_path != worktree.path {
+                    let _ = migrate::migrate_session(&session.uuid, &source_path, &worktree.path);
+                }
+
                 let title = session
                     .summary
                     .as_ref()
