@@ -35,6 +35,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn run_scan() -> Result<(), Box<dyn Error>> {
     let config = config::Config::load()?;
+    run_scan_with_config(&config)
+}
+
+fn run_scan_with_config(config: &config::Config) -> Result<(), Box<dyn Error>> {
     let mut db = db::Database::open()?;
 
     // Scan git repos and worktrees
@@ -64,6 +68,11 @@ fn run_tui(filter: String) -> Result<(), Box<dyn Error>> {
     actions::cleanup_old_configs()?;
 
     let config = config::Config::load()?;
+
+    if config.scan_on_open {
+        run_scan_with_config(&config)?;
+    }
+
     let db = db::Database::open()?;
 
     tui::run(db, config, filter)?;

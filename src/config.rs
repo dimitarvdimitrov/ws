@@ -10,6 +10,13 @@ pub struct Config {
 
     #[serde(default = "default_editor")]
     pub editor: String,
+
+    #[serde(default = "default_scan_on_open")]
+    pub scan_on_open: bool,
+}
+
+fn default_scan_on_open() -> bool {
+    true
 }
 
 fn default_scan_dirs() -> Vec<String> {
@@ -25,6 +32,7 @@ impl Default for Config {
         Self {
             scan_dirs: default_scan_dirs(),
             editor: default_editor(),
+            scan_on_open: default_scan_on_open(),
         }
     }
 }
