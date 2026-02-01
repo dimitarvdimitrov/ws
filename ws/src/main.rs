@@ -41,7 +41,7 @@ fn run_scan() -> Result<(), Box<dyn Error>> {
     for repo in &repos {
         db.upsert_repo(repo)?;
         for worktree in &repo.worktrees {
-            db.upsert_worktree(repo.id, worktree)?;
+            db.upsert_worktree(&repo.path, worktree)?;
         }
     }
 

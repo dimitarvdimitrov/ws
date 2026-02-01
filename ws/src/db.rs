@@ -105,15 +105,13 @@ impl Database {
 
     pub fn upsert_worktree(
         &mut self,
-        _repo_id: i64,
+        repo_path: &std::path::Path,
         worktree: &crate::scanner::git::Worktree,
     ) -> Result<(), Box<dyn Error>> {
-        // Get repo_id from path
+        // Get repo_id from repo path
         let repo_id: i64 = self.conn.query_row(
-            "SELECT id FROM repos WHERE path = (
-                SELECT path FROM repos WHERE ?1 LIKE path || '%' ORDER BY LENGTH(path) DESC LIMIT 1
-            )",
-            params![worktree.path.to_string_lossy()],
+            "SELECT id FROM repos WHERE path = ?1",
+            params![repo_path.to_string_lossy()],
             |row| row.get(0),
         )?;
 

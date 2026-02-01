@@ -14,9 +14,14 @@ pub struct Session {
 }
 
 #[derive(Deserialize)]
+struct SessionIndex {
+    entries: Vec<SessionIndexEntry>,
+}
+
+#[derive(Deserialize)]
 struct SessionIndexEntry {
-    #[serde(rename = "sessionUuid")]
-    session_uuid: String,
+    #[serde(rename = "sessionId")]
+    session_id: String,
     #[serde(rename = "projectPath")]
     project_path: String,
     #[serde(rename = "gitBranch")]
@@ -24,7 +29,7 @@ struct SessionIndexEntry {
     summary: Option<String>,
     #[serde(rename = "firstPrompt")]
     first_prompt: Option<String>,
-    modified: i64,
+    modified: String, // ISO 8601 date string
 }
 
 pub fn scan_sessions() -> Result<Vec<Session>, Box<dyn Error>> {
@@ -56,17 +61,25 @@ pub fn scan_sessions() -> Result<Vec<Session>, Box<dyn Error>> {
 
 fn parse_sessions_index(path: &PathBuf) -> Result<Vec<Session>, Box<dyn Error>> {
     let contents = fs::read_to_string(path)?;
-    let entries: Vec<SessionIndexEntry> = serde_json::from_str(&contents)?;
+    let index: SessionIndex = serde_json::from_str(&contents)?;
 
-    let sessions = entries
+    let sessions = index
+        .entries
         .into_iter()
-        .map(|e| Session {
-            uuid: e.session_uuid,
-            project_path: e.project_path,
-            git_branch: e.git_branch,
-            summary: e.summary,
-            first_prompt: e.first_prompt,
-            modified: e.modified,
+        .map(|e| {
+            // Parse ISO 8601 date to unix timestamp (ms)
+            let modified = chrono::DateTime::parse_from_rfc3339(&e.modified)
+                .map(|dt| dt.timestamp_millis())
+                .unwrap_or(0);
+
+            Session {
+                uuid: e.session_id,
+                project_path: e.project_path,
+                git_branch: e.git_branch,
+                summary: e.summary,
+                first_prompt: e.first_prompt,
+                modified,
+            }
         })
         .collect();
 
