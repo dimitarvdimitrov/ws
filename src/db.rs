@@ -243,39 +243,24 @@ impl Database {
         let mut result = Vec::new();
 
         for (repo_id, repo_name) in repos {
-            // Skip repos that don't match filter (by name)
-            if has_filter && !repo_name.to_lowercase().contains(&filter.to_lowercase()) {
-                // Check if any branch matches - if not, skip this repo
-                let branches = self.get_branches_for_repo(
-                    repo_id,
-                    &filter_pattern,
-                    has_filter,
-                    seven_days_ago,
-                )?;
-                if branches.is_empty() {
-                    continue;
-                }
+            let repo_matches = repo_name.to_lowercase().contains(&filter.to_lowercase());
+
+            // If repo name matches filter, show all branches (no branch filter)
+            // Otherwise, filter branches by the pattern
+            let branches = if has_filter && repo_matches {
+                // Repo matches - show all recent branches without branch-level filter
+                self.get_branches_for_repo(repo_id, &filter_pattern, false, seven_days_ago)?
+            } else {
+                self.get_branches_for_repo(repo_id, &filter_pattern, has_filter, seven_days_ago)?
+            };
+
+            if !branches.is_empty() {
                 let worktrees = self.get_worktrees_for_repo(repo_id)?;
                 result.push(RepoData {
                     name: repo_name,
                     worktrees,
                     branches,
                 });
-            } else {
-                let branches = self.get_branches_for_repo(
-                    repo_id,
-                    &filter_pattern,
-                    has_filter,
-                    seven_days_ago,
-                )?;
-                if !branches.is_empty() {
-                    let worktrees = self.get_worktrees_for_repo(repo_id)?;
-                    result.push(RepoData {
-                        name: repo_name,
-                        worktrees,
-                        branches,
-                    });
-                }
             }
         }
 
