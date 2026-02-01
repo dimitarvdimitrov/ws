@@ -17,7 +17,6 @@ pub struct BranchData {
 
 #[derive(Debug, Clone)]
 pub struct WorktreeData {
-    pub id: i64,
     pub repo_name: String,
     pub path: PathBuf,
     pub branch: String,
@@ -28,7 +27,6 @@ pub struct SessionData {
     pub uuid: String,
     pub summary: Option<String>,
     pub first_prompt: Option<String>,
-    pub modified: i64,
 }
 
 impl Database {
@@ -242,7 +240,6 @@ impl Database {
         let worktrees = stmt
             .query_map(params![branch], |row| {
                 Ok(WorktreeData {
-                    id: row.get(0)?,
                     repo_name: row.get(1)?,
                     path: PathBuf::from(row.get::<_, String>(2)?),
                     branch: row.get(3)?,
@@ -256,7 +253,7 @@ impl Database {
 
     fn get_sessions_for_branch(&self, branch: &str) -> Result<Vec<SessionData>, Box<dyn Error>> {
         let mut stmt = self.conn.prepare(
-            "SELECT uuid, summary, first_prompt, modified
+            "SELECT uuid, summary, first_prompt
              FROM sessions
              WHERE git_branch = ?1
              ORDER BY modified DESC",
@@ -268,7 +265,6 @@ impl Database {
                     uuid: row.get(0)?,
                     summary: row.get(1)?,
                     first_prompt: row.get(2)?,
-                    modified: row.get(3)?,
                 })
             })?
             .filter_map(Result::ok)

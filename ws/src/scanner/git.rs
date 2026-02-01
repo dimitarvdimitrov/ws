@@ -6,7 +6,6 @@ use walkdir::WalkDir;
 
 #[derive(Debug, Clone)]
 pub struct Repo {
-    pub id: i64,
     pub path: PathBuf,
     pub name: String,
     pub worktrees: Vec<Worktree>,
@@ -60,7 +59,6 @@ impl Worktree {
 
 pub fn scan_repos(scan_dirs: &[String]) -> Result<Vec<Repo>, Box<dyn Error>> {
     let mut repos = Vec::new();
-    let mut id_counter = 0i64;
 
     for dir in scan_dirs {
         let expanded = Config::expand_path(dir);
@@ -74,7 +72,7 @@ pub fn scan_repos(scan_dirs: &[String]) -> Result<Vec<Repo>, Box<dyn Error>> {
             if entry.file_type().is_dir() {
                 let git_dir = entry.path().join(".git");
                 if git_dir.exists() {
-                    if let Ok(repo) = scan_single_repo(entry.path(), &mut id_counter) {
+                    if let Ok(repo) = scan_single_repo(entry.path()) {
                         repos.push(repo);
                     }
                 }
@@ -85,7 +83,7 @@ pub fn scan_repos(scan_dirs: &[String]) -> Result<Vec<Repo>, Box<dyn Error>> {
     Ok(repos)
 }
 
-fn scan_single_repo(path: &Path, id_counter: &mut i64) -> Result<Repo, Box<dyn Error>> {
+fn scan_single_repo(path: &Path) -> Result<Repo, Box<dyn Error>> {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -93,9 +91,7 @@ fn scan_single_repo(path: &Path, id_counter: &mut i64) -> Result<Repo, Box<dyn E
 
     let worktrees = parse_worktree_list(path)?;
 
-    *id_counter += 1;
     Ok(Repo {
-        id: *id_counter,
         path: path.to_path_buf(),
         name,
         worktrees,

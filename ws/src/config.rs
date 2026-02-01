@@ -57,11 +57,4 @@ impl Config {
         }
         PathBuf::from(path)
     }
-
-    pub fn expanded_scan_dirs(&self) -> Vec<PathBuf> {
-        self.scan_dirs
-            .iter()
-            .map(|p| Self::expand_path(p))
-            .collect()
-    }
 }
