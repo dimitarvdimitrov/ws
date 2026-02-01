@@ -1,6 +1,6 @@
 use crate::actions;
 use crate::config::Config;
-use crate::db::{BranchData, Database};
+use crate::db::{BranchData, Database, RepoData};
 use crate::scanner::git::{self, Worktree};
 use crossterm::event::KeyCode;
 use std::collections::HashSet;
@@ -18,13 +18,18 @@ pub struct ConfirmDialog {
     pub worktree_path: PathBuf,
 }
 
+pub struct RepoNode {
+    pub data: RepoData,
+    pub branches: Vec<BranchNode>,
+    pub expanded: bool,
+}
+
 pub struct BranchNode {
     pub data: BranchData,
-    pub selected_worktree_idx: usize,
     pub selected_sessions: HashSet<String>, // UUIDs of selected sessions
     pub expanded: bool,
     // Runtime state (not from DB)
-    pub worktree_states: Vec<WorktreeState>,
+    pub worktree_state: WorktreeState,
 }
 
 #[derive(Clone)]
@@ -37,7 +42,8 @@ pub struct App {
     pub db: Database,
     pub config: Config,
     pub filter: String,
-    pub branches: Vec<BranchNode>,
+    pub repos: Vec<RepoNode>,
+    pub selected_repo_idx: usize,
     pub selected_branch_idx: usize,
     pub selected_item: SelectedItem,
     pub confirm_dialog: Option<ConfirmDialog>,
@@ -45,6 +51,7 @@ pub struct App {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SelectedItem {
+    Repo,
     Branch,
     Session(usize), // Index within branch's sessions
 }
@@ -55,9 +62,10 @@ impl App {
             db,
             config,
             filter,
-            branches: Vec::new(),
+            repos: Vec::new(),
+            selected_repo_idx: 0,
             selected_branch_idx: 0,
-            selected_item: SelectedItem::Branch,
+            selected_item: SelectedItem::Repo,
             confirm_dialog: None,
         };
 
@@ -66,40 +74,48 @@ impl App {
     }
 
     fn refresh_data(&mut self) -> Result<(), Box<dyn Error>> {
-        let branch_data = self.db.get_branches_with_data(&self.filter)?;
+        let repo_data = self.db.get_repos_with_data(&self.filter)?;
 
-        self.branches = branch_data
+        self.repos = repo_data
             .into_iter()
             .map(|data| {
-                // Check dirty/WIP state for each worktree
-                let worktree_states: Vec<WorktreeState> = data
-                    .worktrees
+                let branches: Vec<BranchNode> = data
+                    .branches
                     .iter()
-                    .map(|wt| {
+                    .map(|branch_data| {
                         let worktree = Worktree {
-                            path: wt.path.clone(),
-                            branch: Some(wt.branch.clone()),
+                            path: branch_data.worktree.path.clone(),
+                            branch: Some(branch_data.worktree.branch.clone()),
                         };
-                        WorktreeState {
+                        let worktree_state = WorktreeState {
                             is_dirty: worktree.is_dirty(),
                             has_wip: worktree.has_wip_commit(),
+                        };
+                        BranchNode {
+                            data: branch_data.clone(),
+                            selected_sessions: HashSet::new(),
+                            expanded: true,
+                            worktree_state,
                         }
                     })
                     .collect();
 
-                BranchNode {
+                RepoNode {
                     data,
-                    selected_worktree_idx: 0,
-                    selected_sessions: HashSet::new(),
+                    branches,
                     expanded: true,
-                    worktree_states,
                 }
             })
             .collect();
 
         // Reset selection if out of bounds
-        if self.selected_branch_idx >= self.branches.len() {
-            self.selected_branch_idx = 0;
+        if self.selected_repo_idx >= self.repos.len() {
+            self.selected_repo_idx = 0;
+        }
+        if let Some(repo) = self.repos.get(self.selected_repo_idx) {
+            if self.selected_branch_idx >= repo.branches.len() {
+                self.selected_branch_idx = 0;
+            }
         }
 
         Ok(())
@@ -118,14 +134,6 @@ impl App {
             }
             KeyCode::Down => {
                 self.move_down();
-                Action::Continue
-            }
-            KeyCode::Left => {
-                self.cycle_worktree(-1);
-                Action::Continue
-            }
-            KeyCode::Right => {
-                self.cycle_worktree(1);
                 Action::Continue
             }
             KeyCode::Char(' ') if self.filter.is_empty() => {
@@ -173,20 +181,63 @@ impl App {
         }
     }
 
+    fn current_repo(&self) -> Option<&RepoNode> {
+        self.repos.get(self.selected_repo_idx)
+    }
+
+    fn current_repo_mut(&mut self) -> Option<&mut RepoNode> {
+        self.repos.get_mut(self.selected_repo_idx)
+    }
+
+    fn current_branch(&self) -> Option<&BranchNode> {
+        self.current_repo()
+            .and_then(|repo| repo.branches.get(self.selected_branch_idx))
+    }
+
+    fn current_branch_mut(&mut self) -> Option<&mut BranchNode> {
+        let branch_idx = self.selected_branch_idx;
+        self.current_repo_mut()
+            .and_then(|repo| repo.branches.get_mut(branch_idx))
+    }
+
     fn move_up(&mut self) {
-        if self.branches.is_empty() {
+        if self.repos.is_empty() {
             return;
         }
 
         match self.selected_item {
+            SelectedItem::Repo => {
+                if self.selected_repo_idx > 0 {
+                    self.selected_repo_idx -= 1;
+                    // Move to last item of previous repo if expanded
+                    if let Some(repo) = self.repos.get(self.selected_repo_idx) {
+                        if repo.expanded && !repo.branches.is_empty() {
+                            let last_branch_idx = repo.branches.len() - 1;
+                            let branch = &repo.branches[last_branch_idx];
+                            self.selected_branch_idx = last_branch_idx;
+                            if branch.expanded && !branch.data.sessions.is_empty() {
+                                self.selected_item =
+                                    SelectedItem::Session(branch.data.sessions.len() - 1);
+                            } else {
+                                self.selected_item = SelectedItem::Branch;
+                            }
+                        }
+                    }
+                }
+            }
             SelectedItem::Branch => {
                 if self.selected_branch_idx > 0 {
                     self.selected_branch_idx -= 1;
                     // Move to last session of previous branch if expanded
-                    let branch = &self.branches[self.selected_branch_idx];
-                    if branch.expanded && !branch.data.sessions.is_empty() {
-                        self.selected_item = SelectedItem::Session(branch.data.sessions.len() - 1);
+                    if let Some(branch) = self.current_branch() {
+                        if branch.expanded && !branch.data.sessions.is_empty() {
+                            self.selected_item =
+                                SelectedItem::Session(branch.data.sessions.len() - 1);
+                        }
                     }
+                } else {
+                    // Move to repo
+                    self.selected_item = SelectedItem::Repo;
                 }
             }
             SelectedItem::Session(idx) => {
@@ -200,50 +251,58 @@ impl App {
     }
 
     fn move_down(&mut self) {
-        if self.branches.is_empty() {
+        if self.repos.is_empty() {
             return;
         }
 
-        let branch = &self.branches[self.selected_branch_idx];
-
         match self.selected_item {
+            SelectedItem::Repo => {
+                if let Some(repo) = self.current_repo() {
+                    if repo.expanded && !repo.branches.is_empty() {
+                        self.selected_branch_idx = 0;
+                        self.selected_item = SelectedItem::Branch;
+                    } else if self.selected_repo_idx < self.repos.len() - 1 {
+                        self.selected_repo_idx += 1;
+                    }
+                }
+            }
             SelectedItem::Branch => {
-                if branch.expanded && !branch.data.sessions.is_empty() {
-                    self.selected_item = SelectedItem::Session(0);
-                } else if self.selected_branch_idx < self.branches.len() - 1 {
-                    self.selected_branch_idx += 1;
-                    self.selected_item = SelectedItem::Branch;
+                if let Some(branch) = self.current_branch() {
+                    if branch.expanded && !branch.data.sessions.is_empty() {
+                        self.selected_item = SelectedItem::Session(0);
+                    } else if let Some(repo) = self.current_repo() {
+                        if self.selected_branch_idx < repo.branches.len() - 1 {
+                            self.selected_branch_idx += 1;
+                        } else if self.selected_repo_idx < self.repos.len() - 1 {
+                            self.selected_repo_idx += 1;
+                            self.selected_branch_idx = 0;
+                            self.selected_item = SelectedItem::Repo;
+                        }
+                    }
                 }
             }
             SelectedItem::Session(idx) => {
-                if idx < branch.data.sessions.len() - 1 {
-                    self.selected_item = SelectedItem::Session(idx + 1);
-                } else if self.selected_branch_idx < self.branches.len() - 1 {
-                    self.selected_branch_idx += 1;
-                    self.selected_item = SelectedItem::Branch;
+                if let Some(branch) = self.current_branch() {
+                    if idx < branch.data.sessions.len() - 1 {
+                        self.selected_item = SelectedItem::Session(idx + 1);
+                    } else if let Some(repo) = self.current_repo() {
+                        if self.selected_branch_idx < repo.branches.len() - 1 {
+                            self.selected_branch_idx += 1;
+                            self.selected_item = SelectedItem::Branch;
+                        } else if self.selected_repo_idx < self.repos.len() - 1 {
+                            self.selected_repo_idx += 1;
+                            self.selected_branch_idx = 0;
+                            self.selected_item = SelectedItem::Repo;
+                        }
+                    }
                 }
             }
         }
-    }
-
-    fn cycle_worktree(&mut self, delta: i32) {
-        if self.branches.is_empty() {
-            return;
-        }
-
-        let branch = &mut self.branches[self.selected_branch_idx];
-        if branch.data.worktrees.is_empty() {
-            return;
-        }
-
-        let len = branch.data.worktrees.len() as i32;
-        let new_idx = (branch.selected_worktree_idx as i32 + delta).rem_euclid(len);
-        branch.selected_worktree_idx = new_idx as usize;
     }
 
     fn toggle_session(&mut self) {
         if let SelectedItem::Session(idx) = self.selected_item {
-            if let Some(branch) = self.branches.get_mut(self.selected_branch_idx) {
+            if let Some(branch) = self.current_branch_mut() {
                 if let Some(session) = branch.data.sessions.get(idx) {
                     let uuid = session.uuid.clone();
                     if branch.selected_sessions.contains(&uuid) {
@@ -256,37 +315,57 @@ impl App {
         }
     }
 
+    fn toggle_expand(&mut self) {
+        match self.selected_item {
+            SelectedItem::Repo => {
+                if let Some(repo) = self.current_repo_mut() {
+                    repo.expanded = !repo.expanded;
+                }
+            }
+            SelectedItem::Branch => {
+                if let Some(branch) = self.current_branch_mut() {
+                    branch.expanded = !branch.expanded;
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn confirm_selection(&mut self) -> Action {
-        if self.branches.is_empty() {
-            return Action::Continue;
+        match self.selected_item {
+            SelectedItem::Repo => {
+                self.toggle_expand();
+                Action::Continue
+            }
+            SelectedItem::Branch | SelectedItem::Session(_) => {
+                // Launch the selected branch's worktree
+                if let Some(branch) = self.current_branch() {
+                    let worktree = &branch.data.worktree;
+                    let state = &branch.worktree_state;
+
+                    // If has WIP commit, undo it first
+                    if state.has_wip {
+                        let _ = git::undo_wip_commit(&worktree.path);
+                    }
+
+                    // If dirty, show confirmation dialog
+                    if state.is_dirty {
+                        if let Some(repo) = self.current_repo() {
+                            self.confirm_dialog = Some(ConfirmDialog {
+                                message: format!(
+                                    "Worktree '{}' has uncommitted changes.\nCreate WIP commit?",
+                                    repo.data.name
+                                ),
+                                worktree_path: worktree.path.clone(),
+                            });
+                        }
+                        return Action::Continue;
+                    }
+                }
+
+                self.do_launch()
+            }
         }
-
-        let branch = &self.branches[self.selected_branch_idx];
-        if branch.data.worktrees.is_empty() {
-            return Action::Continue;
-        }
-
-        let worktree = &branch.data.worktrees[branch.selected_worktree_idx];
-        let state = &branch.worktree_states[branch.selected_worktree_idx];
-
-        // If has WIP commit, undo it first
-        if state.has_wip {
-            let _ = git::undo_wip_commit(&worktree.path);
-        }
-
-        // If dirty, show confirmation dialog
-        if state.is_dirty {
-            self.confirm_dialog = Some(ConfirmDialog {
-                message: format!(
-                    "Worktree '{}' has uncommitted changes.\nCreate WIP commit?",
-                    worktree.repo_name
-                ),
-                worktree_path: worktree.path.clone(),
-            });
-            return Action::Continue;
-        }
-
-        self.do_launch()
     }
 
     fn do_launch(&self) -> Action {
@@ -294,16 +373,12 @@ impl App {
     }
 
     pub fn launch_selection(&self) -> Result<(), Box<dyn Error>> {
-        if self.branches.is_empty() {
-            return Ok(());
-        }
+        let branch = match self.current_branch() {
+            Some(b) => b,
+            None => return Ok(()),
+        };
 
-        let branch = &self.branches[self.selected_branch_idx];
-        if branch.data.worktrees.is_empty() {
-            return Ok(());
-        }
-
-        let worktree = &branch.data.worktrees[branch.selected_worktree_idx];
+        let worktree = &branch.data.worktree;
 
         // Generate and launch editor config
         let editor_config = actions::generate_editor_config(&worktree.path, &self.config.editor)?;

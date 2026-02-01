@@ -9,15 +9,20 @@ pub struct Database {
 }
 
 #[derive(Debug, Clone)]
+pub struct RepoData {
+    pub name: String,
+    pub branches: Vec<BranchData>,
+}
+
+#[derive(Debug, Clone)]
 pub struct BranchData {
     pub branch: String,
-    pub worktrees: Vec<WorktreeData>,
+    pub worktree: WorktreeData,
     pub sessions: Vec<SessionData>,
 }
 
 #[derive(Debug, Clone)]
 pub struct WorktreeData {
-    pub repo_name: String,
     pub path: PathBuf,
     pub branch: String,
 }
@@ -190,37 +195,35 @@ impl Database {
         Ok(())
     }
 
-    /// Get branches with their worktrees and sessions, filtered by search string
-    pub fn get_branches_with_data(&self, filter: &str) -> Result<Vec<BranchData>, Box<dyn Error>> {
+    /// Get repos with their branches and sessions, filtered by search string
+    pub fn get_repos_with_data(&self, filter: &str) -> Result<Vec<RepoData>, Box<dyn Error>> {
         let filter_pattern = format!("%{}%", filter.to_lowercase());
 
-        // Get all unique branches from worktrees and sessions
+        // Get all repos that have worktrees matching the filter (by repo name or branch)
         let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT branch FROM (
-                SELECT branch FROM worktrees WHERE branch IS NOT NULL
-                UNION
-                SELECT git_branch as branch FROM sessions WHERE git_branch IS NOT NULL
-            ) WHERE LOWER(branch) LIKE ?1
-            ORDER BY branch",
+            "SELECT DISTINCT r.id, r.name
+             FROM repos r
+             JOIN worktrees w ON w.repo_id = r.id
+             WHERE w.branch IS NOT NULL
+               AND (LOWER(r.name) LIKE ?1 OR LOWER(w.branch) LIKE ?1)
+             ORDER BY r.name",
         )?;
 
-        let branches: Vec<String> = stmt
-            .query_map(params![filter_pattern], |row| row.get(0))?
+        let repos: Vec<(i64, String)> = stmt
+            .query_map(params![filter_pattern], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
             .filter_map(Result::ok)
             .collect();
 
         let mut result = Vec::new();
 
-        for branch in branches {
-            let worktrees = self.get_worktrees_for_branch(&branch)?;
-            let sessions = self.get_sessions_for_branch(&branch)?;
-
-            // Only include if has worktrees (sessions alone aren't actionable)
-            if !worktrees.is_empty() {
-                result.push(BranchData {
-                    branch,
-                    worktrees,
-                    sessions,
+        for (repo_id, repo_name) in repos {
+            let branches = self.get_branches_for_repo(repo_id, &filter_pattern)?;
+            if !branches.is_empty() {
+                result.push(RepoData {
+                    name: repo_name,
+                    branches,
                 });
             }
         }
@@ -228,27 +231,44 @@ impl Database {
         Ok(result)
     }
 
-    fn get_worktrees_for_branch(&self, branch: &str) -> Result<Vec<WorktreeData>, Box<dyn Error>> {
+    fn get_branches_for_repo(
+        &self,
+        repo_id: i64,
+        filter_pattern: &str,
+    ) -> Result<Vec<BranchData>, Box<dyn Error>> {
+        // Get branches for this repo, filtered
         let mut stmt = self.conn.prepare(
-            "SELECT w.id, r.name, w.path, w.branch
+            "SELECT w.path, w.branch
              FROM worktrees w
              JOIN repos r ON w.repo_id = r.id
-             WHERE w.branch = ?1
-             ORDER BY r.name",
+             WHERE w.repo_id = ?1
+               AND w.branch IS NOT NULL
+               AND (LOWER(r.name) LIKE ?2 OR LOWER(w.branch) LIKE ?2)
+             ORDER BY w.branch",
         )?;
 
-        let worktrees = stmt
-            .query_map(params![branch], |row| {
-                Ok(WorktreeData {
-                    repo_name: row.get(1)?,
-                    path: PathBuf::from(row.get::<_, String>(2)?),
-                    branch: row.get(3)?,
-                })
+        let worktrees: Vec<(String, String)> = stmt
+            .query_map(params![repo_id, filter_pattern], |row| {
+                Ok((row.get(0)?, row.get(1)?))
             })?
             .filter_map(Result::ok)
             .collect();
 
-        Ok(worktrees)
+        let mut result = Vec::new();
+
+        for (wt_path, branch) in worktrees {
+            let sessions = self.get_sessions_for_branch(&branch)?;
+            result.push(BranchData {
+                branch: branch.clone(),
+                worktree: WorktreeData {
+                    path: PathBuf::from(wt_path),
+                    branch,
+                },
+                sessions,
+            });
+        }
+
+        Ok(result)
     }
 
     fn get_sessions_for_branch(&self, branch: &str) -> Result<Vec<SessionData>, Box<dyn Error>> {

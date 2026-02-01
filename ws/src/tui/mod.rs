@@ -101,7 +101,7 @@ fn ui(f: &mut Frame, app: &App) {
     let help_text = if app.confirm_dialog.is_some() {
         " y/n confirm  Esc cancel "
     } else {
-        " ↑↓ navigate  ←→ switch worktree  Space select session  Enter confirm  Esc clear filter "
+        " ↑↓ navigate  Space select session  Enter expand/launch  Esc clear filter  Ctrl+C quit "
     };
     let help = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(help, chunks[2]);
