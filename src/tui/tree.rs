@@ -1,7 +1,7 @@
 use crate::tui::app::{App, SelectedItem};
 use ratatui::{prelude::*, widgets::*};
 
-pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
+pub fn render_tree(f: &mut Frame, area: Rect, app: &mut App) {
     if app.repos.is_empty() {
         let empty = Paragraph::new("No repos found. Run 'ws --scan' first.")
             .style(Style::default().fg(Color::DarkGray));
@@ -10,12 +10,16 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
     }
 
     let mut lines: Vec<Line> = Vec::new();
+    let mut selected_line: usize = 0;
 
     for (repo_idx, repo) in app.repos.iter().enumerate() {
         let is_selected_repo = repo_idx == app.selected_repo_idx;
 
         // Repo line
         let repo_selected = is_selected_repo && app.selected_item == SelectedItem::Repo;
+        if repo_selected {
+            selected_line = lines.len();
+        }
         let expand_char = if repo.expanded { "▼" } else { "▶" };
 
         // Build worktree dots for repo line
@@ -74,6 +78,9 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                 let is_selected_branch = is_selected_repo && branch_idx == app.selected_branch_idx;
                 let branch_selected =
                     is_selected_branch && app.selected_item == SelectedItem::Branch;
+                if branch_selected {
+                    selected_line = lines.len();
+                }
 
                 let branch_data = &repo.data.branches[branch_idx];
                 let expand_char = if branch.expanded { "▼" } else { "▶" };
@@ -147,6 +154,9 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                     for (session_idx, session) in branch_data.sessions.iter().enumerate() {
                         let session_selected = is_selected_branch
                             && app.selected_item == SelectedItem::Session(session_idx);
+                        if session_selected {
+                            selected_line = lines.len();
+                        }
                         let is_checked = branch.selected_sessions.contains(&session.uuid);
 
                         let checkbox = if is_checked { "[x]" } else { "[ ]" };
@@ -172,7 +182,9 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                                 // Filled dot if session's project_path matches this worktree
                                 let wt_path_str = wt.path.to_string_lossy();
                                 let matches = session.project_path == wt_path_str
-                                    || session.project_path.starts_with(&format!("{}/", wt_path_str));
+                                    || session
+                                        .project_path
+                                        .starts_with(&format!("{}/", wt_path_str));
                                 let symbol = if matches { "●" } else { "○" };
                                 Span::styled(format!("{} ", symbol), style)
                             })
@@ -209,15 +221,14 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                             Style::default().fg(Color::DarkGray)
                         };
 
-                        let mut session_spans = vec![
-                            Span::styled(
-                                format!("        {} ", checkbox),
-                                summary_style,
-                            ),
-                        ];
+                        let mut session_spans = vec![Span::styled(
+                            format!("        {} ", checkbox),
+                            summary_style,
+                        )];
                         session_spans.extend(session_worktree_spans);
                         session_spans.push(Span::styled(summary, summary_style));
-                        session_spans.push(Span::styled(format!(" • {}", metadata), metadata_style));
+                        session_spans
+                            .push(Span::styled(format!(" • {}", metadata), metadata_style));
 
                         let session_line = Line::from(session_spans);
 
@@ -232,7 +243,20 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    let paragraph = Paragraph::new(lines);
+    // Adjust scroll to keep selected line visible
+    let visible_height = area.height as usize;
+    if visible_height > 0 {
+        // Scroll down if selected line is below visible area
+        if selected_line >= app.scroll_offset as usize + visible_height {
+            app.scroll_offset = (selected_line - visible_height + 1) as u16;
+        }
+        // Scroll up if selected line is above visible area
+        if selected_line < app.scroll_offset as usize {
+            app.scroll_offset = selected_line as u16;
+        }
+    }
+
+    let paragraph = Paragraph::new(lines).scroll((app.scroll_offset, 0));
     f.render_widget(paragraph, area);
 }
 

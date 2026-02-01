@@ -100,10 +100,8 @@ impl Database {
             .is_ok();
 
         if !has_message_count {
-            self.conn.execute(
-                "ALTER TABLE sessions ADD COLUMN message_count INTEGER",
-                [],
-            )?;
+            self.conn
+                .execute("ALTER TABLE sessions ADD COLUMN message_count INTEGER", [])?;
         }
 
         Ok(())
