@@ -31,6 +31,7 @@ pub struct BranchData {
 #[derive(Debug, Clone)]
 pub struct SessionData {
     pub uuid: String,
+    pub project_path: String,
     pub summary: Option<String>,
     pub first_prompt: Option<String>,
     pub modified: i64,
@@ -374,7 +375,7 @@ impl Database {
 
     fn get_sessions_for_branch(&self, branch: &str) -> Result<Vec<SessionData>, Box<dyn Error>> {
         let mut stmt = self.conn.prepare(
-            "SELECT uuid, summary, first_prompt, modified, message_count
+            "SELECT uuid, project_path, summary, first_prompt, modified, message_count
              FROM sessions
              WHERE git_branch = ?1
              ORDER BY modified DESC",
@@ -384,10 +385,11 @@ impl Database {
             .query_map(params![branch], |row| {
                 Ok(SessionData {
                     uuid: row.get(0)?,
-                    summary: row.get(1)?,
-                    first_prompt: row.get(2)?,
-                    modified: row.get(3)?,
-                    message_count: row.get(4)?,
+                    project_path: row.get(1)?,
+                    summary: row.get(2)?,
+                    first_prompt: row.get(3)?,
+                    modified: row.get(4)?,
+                    message_count: row.get(5)?,
                 })
             })?
             .filter_map(Result::ok)
