@@ -71,7 +71,8 @@ pub fn scan_repos(scan_dirs: &[String]) -> Result<Vec<Repo>, Box<dyn Error>> {
             let entry = entry?;
             if entry.file_type().is_dir() {
                 let git_dir = entry.path().join(".git");
-                if git_dir.exists() {
+                // Only count as repo if .git is a directory (real repo), not a file (linked worktree)
+                if git_dir.is_dir() {
                     if let Ok(repo) = scan_single_repo(entry.path()) {
                         repos.push(repo);
                     }
