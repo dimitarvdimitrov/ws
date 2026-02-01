@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 pub enum Action {
     Continue,
-    Quit,
     Launch,
 }
 
@@ -38,7 +37,6 @@ pub struct App {
     pub db: Database,
     pub config: Config,
     pub filter: String,
-    pub filter_mode: bool,
     pub branches: Vec<BranchNode>,
     pub selected_branch_idx: usize,
     pub selected_item: SelectedItem,
@@ -57,7 +55,6 @@ impl App {
             db,
             config,
             filter,
-            filter_mode: false,
             branches: Vec::new(),
             selected_branch_idx: 0,
             selected_item: SelectedItem::Branch,
@@ -114,17 +111,7 @@ impl App {
             return self.handle_confirm_key(key);
         }
 
-        // Handle filter mode
-        if self.filter_mode {
-            return self.handle_filter_key(key);
-        }
-
         match key {
-            KeyCode::Char('q') => Action::Quit,
-            KeyCode::Char('/') => {
-                self.filter_mode = true;
-                Action::Continue
-            }
             KeyCode::Up => {
                 self.move_up();
                 Action::Continue
@@ -141,7 +128,7 @@ impl App {
                 self.cycle_worktree(1);
                 Action::Continue
             }
-            KeyCode::Char(' ') => {
+            KeyCode::Char(' ') if self.filter.is_empty() => {
                 self.toggle_session();
                 Action::Continue
             }
@@ -151,16 +138,6 @@ impl App {
                     self.filter.clear();
                     let _ = self.refresh_data();
                 }
-                Action::Continue
-            }
-            _ => Action::Continue,
-        }
-    }
-
-    fn handle_filter_key(&mut self, key: KeyCode) -> Action {
-        match key {
-            KeyCode::Esc | KeyCode::Enter => {
-                self.filter_mode = false;
                 Action::Continue
             }
             KeyCode::Backspace => {

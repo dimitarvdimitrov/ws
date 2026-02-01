@@ -6,7 +6,9 @@ use crate::config::Config;
 use crate::db::Database;
 use app::App;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -31,9 +33,13 @@ pub fn run(db: Database, config: Config, filter: String) -> Result<(), Box<dyn E
 
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
+                // Handle Ctrl+C to quit
+                if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    break;
+                }
+
                 match app.handle_key(key.code) {
                     app::Action::Continue => {}
-                    app::Action::Quit => break,
                     app::Action::Launch => {
                         // Restore terminal before launching
                         disable_raw_mode()?;
@@ -95,7 +101,7 @@ fn ui(f: &mut Frame, app: &App) {
     let help_text = if app.confirm_dialog.is_some() {
         " y/n confirm  Esc cancel "
     } else {
-        " ↑↓ navigate  ←→ switch worktree  Space select session  Enter confirm  / filter  q quit "
+        " ↑↓ navigate  ←→ switch worktree  Space select session  Enter confirm  Esc clear filter "
     };
     let help = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(help, chunks[2]);
