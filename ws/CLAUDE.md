@@ -1,73 +1,53 @@
-# ws - Git Worktree & Claude Session Manager
+# CLAUDE.md
 
-A Rust CLI/TUI tool for managing git worktrees and resuming Claude sessions.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Goal
-
-Quickly switch between git worktrees while preserving and resuming associated Claude sessions. The tool:
-1. Scans git repos + worktrees and Claude session history
-2. Presents a filterable tree view: Branch → Worktrees → Sessions
-3. Opens Warp terminal windows with the editor and selected Claude sessions
-
-## Usage
+## Build Commands
 
 ```bash
-# Scan repos and sessions (run via cron every minute)
-ws --scan
-
-# Launch TUI
-ws
-
-# Launch TUI with initial filter
-ws mitko ingester
+cargo build              # Debug build
+cargo build --release    # Release build
+cargo run                # Launch interactive TUI
+cargo run -- --scan      # Run background scan to update database
+cargo run -- <filter>    # Launch TUI with initial filter text
 ```
 
-## TUI Controls
-
-| Key | Action |
-|-----|--------|
-| ↑/↓ | Navigate branches/sessions |
-| ←/→ | Cycle worktree selection for current branch |
-| Space | Toggle session checkbox (for resuming) |
-| Enter | Confirm - opens Warp windows |
-| / | Focus filter input |
-| Esc | Clear filter / exit |
-| q | Quit |
-
-## WIP Commit Handling
-
-- **Dirty worktree selected**: Prompts to create "WIP: paused work" commit
-- **WIP commit detected**: Automatically runs `git reset --soft HEAD~1` to restore staged changes
+No unit tests exist—this is a binary crate tested manually via the TUI.
 
 ## Architecture
 
+**ws** is a terminal UI for managing git worktrees and Claude sessions. It uses Warp terminal's launch configuration system to open editors and resume sessions.
+
+### Two Modes
+
+1. **Scan mode** (`ws --scan`): Updates SQLite database by scanning:
+   - Git repos from configured `scan_dirs` via `git worktree list --porcelain`
+   - Claude sessions from `~/.claude/projects/*/sessions-index.json`
+
+2. **TUI mode** (`ws [filter]`): Interactive tree browser
+   - Hierarchy: Repo → Branch → Session
+   - Worktree selection via left/right arrows
+   - Session multi-select with space, launch with Enter
+
+### Key Data Flow
+
 ```
-src/
-├── main.rs              # CLI entry: ws --scan | ws [filter...]
-├── scanner/
-│   ├── git.rs           # Scan repos, worktrees, dirty state
-│   └── claude.rs        # Parse ~/.claude/projects/*/sessions-index.json
-├── db.rs                # SQLite schema + queries
-├── tui/
-│   ├── app.rs           # State machine, event handling
-│   ├── tree.rs          # Tree rendering
-│   └── confirmation.rs  # Dirty worktree dialog
-├── actions.rs           # Warp launch config generation
-└── config.rs            # Config loading
+scanner/git.rs    → finds repos & worktrees
+scanner/claude.rs → finds Claude sessions
+db.rs             → SQLite persistence (~/.config/ws/ws.db)
+tui/app.rs        → state management & navigation
+tui/tree.rs       → rendering
+actions.rs        → generates Warp launch configs, opens via warp://launch/
 ```
 
-## Configuration
+### Configuration
 
-Location: `~/Library/Application Support/ws/config.toml` (macOS) or `~/.config/ws/config.toml` (Linux)
+- Config file: `~/.config/ws/config.toml`
+- Fields: `scan_dirs` (array of paths), `editor` (command to run)
 
-```toml
-scan_dirs = ["~/Documents"]
-editor = "code"  # defaults to $EDITOR
-```
+### Worktree State Detection
 
-## Database
-
-SQLite at `~/Library/Application Support/ws/ws.db` with tables:
-- `repos` - git repositories
-- `worktrees` - worktrees per repo with branch info
-- `sessions` - Claude sessions with git branch association
+- Dirty detection: `git status --porcelain`
+- WIP commits: checks if HEAD commit message starts with "WIP: paused work"
+- On launch with dirty worktree, prompts to create WIP commit
+- On launch with WIP commit, auto-runs `git reset --soft HEAD~1`
