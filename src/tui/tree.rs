@@ -1,7 +1,7 @@
 use crate::tui::app::{App, SelectedItem};
 use ratatui::{prelude::*, widgets::*};
 
-pub fn render_tree(f: &mut Frame, area: Rect, app: &mut App) {
+pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
     if app.repos.is_empty() {
         let empty = Paragraph::new("No repos found. Run 'ws --scan' first.")
             .style(Style::default().fg(Color::DarkGray));
@@ -10,16 +10,12 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &mut App) {
     }
 
     let mut lines: Vec<Line> = Vec::new();
-    let mut selected_line: usize = 0;
 
     for (repo_idx, repo) in app.repos.iter().enumerate() {
         let is_selected_repo = repo_idx == app.selected_repo_idx;
 
         // Repo line
         let repo_selected = is_selected_repo && app.selected_item == SelectedItem::Repo;
-        if repo_selected {
-            selected_line = lines.len();
-        }
         let expand_char = if repo.expanded { "▼" } else { "▶" };
 
         // Build worktree dots for repo line
@@ -78,9 +74,6 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &mut App) {
                 let is_selected_branch = is_selected_repo && branch_idx == app.selected_branch_idx;
                 let branch_selected =
                     is_selected_branch && app.selected_item == SelectedItem::Branch;
-                if branch_selected {
-                    selected_line = lines.len();
-                }
 
                 let branch_data = &repo.data.branches[branch_idx];
                 let expand_char = if branch.expanded { "▼" } else { "▶" };
@@ -154,9 +147,6 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &mut App) {
                     for (session_idx, session) in branch_data.sessions.iter().enumerate() {
                         let session_selected = is_selected_branch
                             && app.selected_item == SelectedItem::Session(session_idx);
-                        if session_selected {
-                            selected_line = lines.len();
-                        }
                         let is_checked = branch.selected_sessions.contains(&session.uuid);
 
                         let checkbox = if is_checked { "[x]" } else { "[ ]" };
@@ -240,19 +230,6 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &mut App) {
                     }
                 }
             }
-        }
-    }
-
-    // Adjust scroll to keep selected line visible
-    let visible_height = area.height as usize;
-    if visible_height > 0 {
-        // Scroll down if selected line is below visible area
-        if selected_line >= app.scroll_offset as usize + visible_height {
-            app.scroll_offset = (selected_line - visible_height + 1) as u16;
-        }
-        // Scroll up if selected line is above visible area
-        if selected_line < app.scroll_offset as usize {
-            app.scroll_offset = selected_line as u16;
         }
     }
 

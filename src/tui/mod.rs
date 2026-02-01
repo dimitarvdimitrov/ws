@@ -8,6 +8,7 @@ use app::App;
 use crossterm::{
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+        MouseEvent, MouseEventKind,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -31,30 +32,79 @@ pub fn run(db: Database, config: Config, filter: String) -> Result<(), Box<dyn E
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                // Handle Ctrl+C to quit
-                if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                    break;
-                }
+        match event::read()? {
+            Event::Key(key) => {
+                if key.kind == KeyEventKind::Press {
+                    // Handle Ctrl+C to quit
+                    if key.code == KeyCode::Char('c')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        break;
+                    }
 
-                match app.handle_key(key.code) {
-                    app::Action::Continue => {}
-                    app::Action::Launch => {
-                        // Restore terminal before launching
-                        disable_raw_mode()?;
-                        execute!(
-                            terminal.backend_mut(),
-                            LeaveAlternateScreen,
-                            DisableMouseCapture
-                        )?;
-                        terminal.show_cursor()?;
+                    // Handle scroll keys: Option+Up/Down and PageUp/PageDown
+                    if key.modifiers.contains(KeyModifiers::ALT) {
+                        match key.code {
+                            KeyCode::Up => {
+                                app.scroll_up(1);
+                                continue;
+                            }
+                            KeyCode::Down => {
+                                app.scroll_down(1);
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
 
-                        app.launch_selection()?;
-                        return Ok(());
+                    match key.code {
+                        KeyCode::PageUp => {
+                            app.scroll_up(app.viewport_height / 2);
+                            continue;
+                        }
+                        KeyCode::PageDown => {
+                            app.scroll_down(app.viewport_height / 2);
+                            continue;
+                        }
+                        KeyCode::Home => {
+                            app.scroll_to_top();
+                            continue;
+                        }
+                        KeyCode::End => {
+                            app.scroll_to_bottom();
+                            continue;
+                        }
+                        _ => {}
+                    }
+
+                    match app.handle_key(key.code) {
+                        app::Action::Continue => {}
+                        app::Action::Launch => {
+                            // Restore terminal before launching
+                            disable_raw_mode()?;
+                            execute!(
+                                terminal.backend_mut(),
+                                LeaveAlternateScreen,
+                                DisableMouseCapture
+                            )?;
+                            terminal.show_cursor()?;
+
+                            app.launch_selection()?;
+                            return Ok(());
+                        }
                     }
                 }
             }
+            Event::Mouse(MouseEvent { kind, .. }) => match kind {
+                MouseEventKind::ScrollUp => {
+                    app.scroll_up(1);
+                }
+                MouseEventKind::ScrollDown => {
+                    app.scroll_down(1);
+                }
+                _ => {}
+            },
+            _ => {}
         }
     }
 
@@ -95,13 +145,16 @@ fn ui(f: &mut Frame, app: &mut App) {
     let inner_area = tree_block.inner(chunks[1]);
     f.render_widget(tree_block, chunks[1]);
 
+    // Update viewport height for scroll calculations
+    app.viewport_height = inner_area.height;
+
     tree::render_tree(f, inner_area, app);
 
     // Help bar
     let help_text = if app.confirm_dialog.is_some() {
         " y/n confirm  Esc cancel "
     } else {
-        " ↑↓ navigate  ←→ switch worktree  Space select session  Enter expand/launch  Ctrl+C quit"
+        " ↑↓ navigate  ←→ switch worktree  Space select  Enter launch  PgUp/PgDn scroll  Ctrl+C quit "
     };
     let help = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(help, chunks[2]);

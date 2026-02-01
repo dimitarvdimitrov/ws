@@ -53,6 +53,7 @@ pub struct App {
     pub confirm_dialog: Option<ConfirmDialog>,
     pub pending_launch: PendingLaunch,
     pub scroll_offset: u16,
+    pub viewport_height: u16,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -75,6 +76,7 @@ impl App {
             confirm_dialog: None,
             pending_launch: PendingLaunch::default(),
             scroll_offset: 0,
+            viewport_height: 0,
         };
 
         app.refresh_data()?;
@@ -156,10 +158,12 @@ impl App {
         match key {
             KeyCode::Up => {
                 self.move_up();
+                self.ensure_selection_visible();
                 Action::Continue
             }
             KeyCode::Down => {
                 self.move_down();
+                self.ensure_selection_visible();
                 Action::Continue
             }
             KeyCode::Left => {
@@ -342,6 +346,102 @@ impl App {
                     }
                 }
             }
+        }
+    }
+
+    pub fn scroll_up(&mut self, lines: u16) {
+        for _ in 0..lines {
+            self.move_up();
+        }
+        self.ensure_selection_visible();
+    }
+
+    pub fn scroll_down(&mut self, lines: u16) {
+        for _ in 0..lines {
+            self.move_down();
+        }
+        self.ensure_selection_visible();
+    }
+
+    pub fn scroll_to_top(&mut self) {
+        self.selected_repo_idx = 0;
+        self.selected_branch_idx = 0;
+        self.selected_item = SelectedItem::Repo;
+        self.scroll_offset = 0;
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        if self.repos.is_empty() {
+            return;
+        }
+        // Navigate to the last visible item
+        loop {
+            let prev_repo = self.selected_repo_idx;
+            let prev_branch = self.selected_branch_idx;
+            let prev_item = self.selected_item;
+            self.move_down();
+            if self.selected_repo_idx == prev_repo
+                && self.selected_branch_idx == prev_branch
+                && self.selected_item == prev_item
+            {
+                break;
+            }
+        }
+        self.ensure_selection_visible();
+    }
+
+    /// Compute the line index of the current selection within the rendered tree
+    pub fn selected_line_index(&self) -> usize {
+        let mut line = 0;
+        for (repo_idx, repo) in self.repos.iter().enumerate() {
+            if repo_idx == self.selected_repo_idx && self.selected_item == SelectedItem::Repo {
+                return line;
+            }
+            line += 1; // repo line
+
+            if repo.expanded {
+                for (branch_idx, branch) in repo.branches.iter().enumerate() {
+                    let is_selected_branch = repo_idx == self.selected_repo_idx
+                        && branch_idx == self.selected_branch_idx;
+
+                    if is_selected_branch && self.selected_item == SelectedItem::Branch {
+                        return line;
+                    }
+                    line += 1; // branch line
+
+                    if branch.expanded {
+                        let branch_data = &repo.data.branches[branch_idx];
+                        for (session_idx, _) in branch_data.sessions.iter().enumerate() {
+                            if is_selected_branch
+                                && self.selected_item == SelectedItem::Session(session_idx)
+                            {
+                                return line;
+                            }
+                            line += 1;
+                        }
+                    }
+                }
+            }
+        }
+        line
+    }
+
+    /// Adjust scroll offset to keep selection visible
+    pub fn ensure_selection_visible(&mut self) {
+        let selected_line = self.selected_line_index() as u16;
+        let viewport_height = self.viewport_height;
+
+        if viewport_height == 0 {
+            return;
+        }
+
+        // If selection is above viewport, scroll up to show it
+        if selected_line < self.scroll_offset {
+            self.scroll_offset = selected_line;
+        }
+        // If selection is below viewport, scroll down to show it
+        else if selected_line >= self.scroll_offset + viewport_height {
+            self.scroll_offset = selected_line - viewport_height + 1;
         }
     }
 
