@@ -43,6 +43,14 @@ impl Config {
     }
 
     fn config_path() -> Result<PathBuf, Box<dyn Error>> {
+        // Check ~/.config/ws first (XDG style), then platform default
+        if let Some(home) = dirs::home_dir() {
+            let xdg_path = home.join(".config/ws/config.toml");
+            if xdg_path.exists() {
+                return Ok(xdg_path);
+            }
+        }
+
         let config_dir = dirs::config_dir()
             .ok_or("Could not find config directory")?
             .join("ws");
