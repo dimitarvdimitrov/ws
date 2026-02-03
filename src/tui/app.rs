@@ -504,7 +504,7 @@ impl App {
             }
             SelectedItem::Branch | SelectedItem::Session(_) => {
                 // Extract needed state before modifying self
-                let (has_wip, is_dirty, worktree_name) = {
+                let (has_wip, is_dirty, worktree_name, branch_name, checked_out_branch) = {
                     let repo = match self.current_repo() {
                         Some(r) => r,
                         None => return Action::Continue,
@@ -514,16 +514,23 @@ impl App {
                         return Action::Continue;
                     }
 
-                    let branch = match self.current_branch() {
+                    let branch_node = match self.current_branch() {
                         Some(b) => b,
                         None => return Action::Continue,
                     };
 
-                    let wt_idx = branch.selected_worktree_idx;
+                    let wt_idx = branch_node.selected_worktree_idx;
                     let state = &repo.worktree_states[wt_idx];
                     let worktree = &repo.data.worktrees[wt_idx];
+                    let branch_data = &repo.data.branches[self.selected_branch_idx];
 
-                    (state.has_wip, state.is_dirty, worktree.name.clone())
+                    (
+                        state.has_wip,
+                        state.is_dirty,
+                        worktree.name.clone(),
+                        branch_data.branch.clone(),
+                        worktree.checked_out_branch.clone(),
+                    )
                 };
 
                 // Reset pending commands
@@ -534,6 +541,13 @@ impl App {
                     self.pending_launch
                         .pre_commands
                         .push("git reset --soft HEAD~1".to_string());
+                }
+
+                // If branch differs from what's checked out, add checkout command
+                if checked_out_branch.as_ref() != Some(&branch_name) {
+                    self.pending_launch
+                        .pre_commands
+                        .push(format!("git checkout {}", branch_name));
                 }
 
                 // If dirty, show confirmation dialog
