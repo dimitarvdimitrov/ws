@@ -1,3 +1,4 @@
+use super::SessionProvider;
 use serde::Deserialize;
 use std::error::Error;
 use std::fs;
@@ -12,6 +13,7 @@ pub struct Session {
     pub first_prompt: Option<String>,
     pub modified: i64,
     pub message_count: Option<i64>,
+    pub provider: SessionProvider,
 }
 
 #[derive(Deserialize)]
@@ -83,6 +85,7 @@ fn parse_sessions_index(path: &PathBuf) -> Result<Vec<Session>, Box<dyn Error>> 
                 first_prompt: e.first_prompt,
                 modified,
                 message_count: e.message_count,
+                provider: SessionProvider::Claude,
             }
         })
         .collect();

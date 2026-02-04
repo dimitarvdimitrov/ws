@@ -603,10 +603,13 @@ impl App {
 
         for uuid in &branch.selected_sessions {
             if let Some(session) = branch_data.sessions.iter().find(|s| &s.uuid == uuid) {
-                // Migrate session to target worktree if needed
-                let source_path = PathBuf::from(&session.project_path);
-                if source_path != worktree.path {
-                    let _ = migrate::migrate_session(&session.uuid, &source_path, &worktree.path);
+                // Only migrate Claude sessions - Codex uses central storage
+                if session.provider == "claude" {
+                    let source_path = PathBuf::from(&session.project_path);
+                    if source_path != worktree.path {
+                        let _ =
+                            migrate::migrate_session(&session.uuid, &source_path, &worktree.path);
+                    }
                 }
 
                 let title = session
@@ -614,10 +617,20 @@ impl App {
                     .as_ref()
                     .or(session.first_prompt.as_ref())
                     .map(|s| truncate(s, 30))
-                    .unwrap_or_else(|| "Claude session".to_string());
+                    .unwrap_or_else(|| {
+                        if session.provider == "codex" {
+                            "Codex session".to_string()
+                        } else {
+                            "Claude session".to_string()
+                        }
+                    });
 
-                let session_config =
-                    actions::generate_session_config(&session.uuid, &worktree.path, &title)?;
+                let session_config = actions::generate_session_config(
+                    &session.uuid,
+                    &worktree.path,
+                    &title,
+                    &session.provider,
+                )?;
                 actions::open_config(&session_config)?;
             }
         }

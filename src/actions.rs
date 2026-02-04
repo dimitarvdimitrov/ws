@@ -47,14 +47,21 @@ windows:
     Ok(config_path)
 }
 
-/// Generate Warp launch config for a Claude session
+/// Generate Warp launch config for a session (Claude or Codex)
 pub fn generate_session_config(
     session_uuid: &str,
     worktree_path: &PathBuf,
     title: &str,
+    provider: &str,
 ) -> Result<PathBuf, Box<dyn Error>> {
     let config_name = format!("ws-session-{}", &session_uuid[..8.min(session_uuid.len())]);
     let config_path = warp_config_dir()?.join(format!("{}.yaml", config_name));
+
+    // Generate provider-specific resume command
+    let resume_cmd = match provider {
+        "codex" => format!("codex resume {}", session_uuid),
+        _ => format!("claude --resume {}", session_uuid),
+    };
 
     let yaml = format!(
         r#"---
@@ -65,12 +72,12 @@ windows:
         layout:
           cwd: {}
           commands:
-            - exec: claude --resume {}
+            - exec: {}
 "#,
         config_name,
         title.replace('"', "'"), // Escape quotes in title
         worktree_path.display(),
-        session_uuid
+        resume_cmd
     );
 
     fs::write(&config_path, yaml)?;

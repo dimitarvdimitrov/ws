@@ -171,13 +171,19 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                             format!("{} • {}", msg_count, relative_time)
                         };
 
+                        // Color by provider: orange for Claude, white/gray for Codex
+                        let is_claude = session.provider.as_str() != "codex";
                         let summary_style = if session_selected {
                             Style::default().fg(Color::Cyan)
+                        } else if is_claude {
+                            Style::default().fg(Color::Rgb(255, 165, 0)) // Orange for Claude
                         } else {
-                            Style::default().fg(Color::Gray)
+                            Style::default().fg(Color::Gray) // Gray for Codex
                         };
                         let metadata_style = if session_selected {
                             Style::default().fg(Color::Gray)
+                        } else if is_claude {
+                            Style::default().fg(Color::Rgb(200, 130, 0)) // Darker orange for Claude
                         } else {
                             Style::default().fg(Color::DarkGray)
                         };

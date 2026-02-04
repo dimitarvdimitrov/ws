@@ -51,14 +51,22 @@ fn run_scan_with_config(config: &config::Config) -> Result<(), Box<dyn Error>> {
     }
 
     // Scan Claude sessions
-    let sessions = scanner::claude::scan_sessions()?;
-    for session in &sessions {
+    let claude_sessions = scanner::claude::scan_sessions()?;
+    for session in &claude_sessions {
         db.upsert_session(session)?;
     }
 
-    // Cleanup stale entries
+    // Scan Codex sessions
+    let codex_sessions = scanner::codex::scan_sessions()?;
+    for session in &codex_sessions {
+        db.upsert_session(session)?;
+    }
+
+    // Cleanup stale entries - combine both session lists
+    let mut all_sessions = claude_sessions;
+    all_sessions.extend(codex_sessions);
     db.delete_stale_repos(&repos)?;
-    db.delete_stale_sessions(&sessions)?;
+    db.delete_stale_sessions(&all_sessions)?;
 
     Ok(())
 }

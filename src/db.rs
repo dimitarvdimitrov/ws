@@ -36,6 +36,7 @@ pub struct SessionData {
     pub first_prompt: Option<String>,
     pub modified: i64,
     pub message_count: Option<i64>,
+    pub provider: String,
 }
 
 impl Database {
@@ -85,7 +86,8 @@ impl Database {
                 summary TEXT,
                 first_prompt TEXT,
                 modified INTEGER NOT NULL,
-                message_count INTEGER
+                message_count INTEGER,
+                provider TEXT NOT NULL DEFAULT 'claude'
             );
 
             CREATE INDEX IF NOT EXISTS idx_sessions_branch ON sessions(git_branch);
@@ -102,6 +104,19 @@ impl Database {
         if !has_message_count {
             self.conn
                 .execute("ALTER TABLE sessions ADD COLUMN message_count INTEGER", [])?;
+        }
+
+        // Migration: add provider column if it doesn't exist
+        let has_provider: bool = self
+            .conn
+            .prepare("SELECT provider FROM sessions LIMIT 0")
+            .is_ok();
+
+        if !has_provider {
+            self.conn.execute(
+                "ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'",
+                [],
+            )?;
         }
 
         Ok(())
@@ -148,15 +163,16 @@ impl Database {
 
     pub fn upsert_session(&mut self, session: &Session) -> Result<(), Box<dyn Error>> {
         self.conn.execute(
-            "INSERT INTO sessions (uuid, project_path, git_branch, summary, first_prompt, modified, message_count)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO sessions (uuid, project_path, git_branch, summary, first_prompt, modified, message_count, provider)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(uuid) DO UPDATE SET
                 project_path = excluded.project_path,
                 git_branch = excluded.git_branch,
                 summary = excluded.summary,
                 first_prompt = excluded.first_prompt,
                 modified = excluded.modified,
-                message_count = excluded.message_count",
+                message_count = excluded.message_count,
+                provider = excluded.provider",
             params![
                 session.uuid,
                 session.project_path,
@@ -164,7 +180,8 @@ impl Database {
                 session.summary,
                 session.first_prompt,
                 session.modified,
-                session.message_count
+                session.message_count,
+                session.provider.as_str()
             ],
         )?;
         Ok(())
@@ -364,7 +381,7 @@ impl Database {
         // Handle "(no branch)" specially - match NULL or empty git_branch
         let sessions = if branch == "(no branch)" {
             let mut stmt = self.conn.prepare(
-                "SELECT uuid, project_path, summary, first_prompt, modified, message_count
+                "SELECT uuid, project_path, summary, first_prompt, modified, message_count, provider
                  FROM sessions
                  WHERE (git_branch IS NULL OR git_branch = '') AND project_path LIKE ?1
                  ORDER BY modified DESC",
@@ -377,13 +394,14 @@ impl Database {
                     first_prompt: row.get(3)?,
                     modified: row.get(4)?,
                     message_count: row.get(5)?,
+                    provider: row.get(6)?,
                 })
             })?
             .filter_map(Result::ok)
             .collect()
         } else {
             let mut stmt = self.conn.prepare(
-                "SELECT uuid, project_path, summary, first_prompt, modified, message_count
+                "SELECT uuid, project_path, summary, first_prompt, modified, message_count, provider
                  FROM sessions
                  WHERE git_branch = ?1 AND project_path LIKE ?2
                  ORDER BY modified DESC",
@@ -396,6 +414,7 @@ impl Database {
                     first_prompt: row.get(3)?,
                     modified: row.get(4)?,
                     message_count: row.get(5)?,
+                    provider: row.get(6)?,
                 })
             })?
             .filter_map(Result::ok)
