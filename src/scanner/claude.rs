@@ -1,7 +1,7 @@
 use super::SessionProvider;
-use serde::Deserialize;
 use std::error::Error;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -16,27 +16,6 @@ pub struct Session {
     pub provider: SessionProvider,
 }
 
-#[derive(Deserialize)]
-struct SessionIndex {
-    entries: Vec<SessionIndexEntry>,
-}
-
-#[derive(Deserialize)]
-struct SessionIndexEntry {
-    #[serde(rename = "sessionId")]
-    session_id: String,
-    #[serde(rename = "projectPath")]
-    project_path: String,
-    #[serde(rename = "gitBranch")]
-    git_branch: Option<String>,
-    summary: Option<String>,
-    #[serde(rename = "firstPrompt")]
-    first_prompt: Option<String>,
-    modified: String, // ISO 8601 date string
-    #[serde(rename = "messageCount")]
-    message_count: Option<i64>,
-}
-
 pub fn scan_sessions() -> Result<Vec<Session>, Box<dyn Error>> {
     let claude_dir = dirs::home_dir()
         .ok_or("Could not find home directory")?
@@ -49,14 +28,17 @@ pub fn scan_sessions() -> Result<Vec<Session>, Box<dyn Error>> {
 
     let mut sessions = Vec::new();
 
-    // Glob ~/.claude/projects/*/sessions-index.json
-    let pattern = claude_dir.join("*").join("sessions-index.json");
+    // Glob ~/.claude/projects/*/*.jsonl
+    let pattern = claude_dir.join("*").join("*.jsonl");
     let pattern_str = pattern.to_string_lossy();
 
     for entry in glob::glob(&pattern_str)? {
         if let Ok(path) = entry {
-            if let Ok(parsed) = parse_sessions_index(&path) {
-                sessions.extend(parsed);
+            match parse_jsonl_session(&path) {
+                Ok(session) => sessions.push(session),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse {:?}: {}", path, e);
+                }
             }
         }
     }
@@ -64,31 +46,92 @@ pub fn scan_sessions() -> Result<Vec<Session>, Box<dyn Error>> {
     Ok(sessions)
 }
 
-fn parse_sessions_index(path: &PathBuf) -> Result<Vec<Session>, Box<dyn Error>> {
-    let contents = fs::read_to_string(path)?;
-    let index: SessionIndex = serde_json::from_str(&contents)?;
+/// Parse a single JSONL session file into a Session.
+///
+/// Extracts metadata by reading lines one at a time:
+/// - `cwd` and `gitBranch` from the first line that has them.
+/// - `first_prompt` from the first `type: "user"` line with a string `message.content`.
+/// - `summary` from a `type: "summary"` line (if present).
+/// - `message_count` as the count of `type: "user"` lines.
+/// - `modified` from file mtime (reliable proxy since Claude writes as the session progresses).
+fn parse_jsonl_session(path: &PathBuf) -> Result<Session, Box<dyn Error>> {
+    let uuid = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid filename")?
+        .to_string();
 
-    let sessions = index
-        .entries
-        .into_iter()
-        .map(|e| {
-            // Parse ISO 8601 date to unix timestamp (ms)
-            let modified = chrono::DateTime::parse_from_rfc3339(&e.modified)
-                .map(|dt| dt.timestamp_millis())
-                .unwrap_or(0);
+    let modified = fs::metadata(path)?
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis() as i64;
 
-            Session {
-                uuid: e.session_id,
-                project_path: e.project_path,
-                git_branch: e.git_branch,
-                summary: e.summary,
-                first_prompt: e.first_prompt,
-                modified,
-                message_count: e.message_count,
-                provider: SessionProvider::Claude,
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    let mut cwd: Option<String> = None;
+    let mut git_branch: Option<String> = None;
+    let mut first_prompt: Option<String> = None;
+    let mut summary: Option<String> = None;
+    let mut message_count: i64 = 0;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        let value: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // Extract cwd and gitBranch from the first line that has them.
+        if cwd.is_none() {
+            if let Some(c) = value.get("cwd").and_then(|v| v.as_str()) {
+                cwd = Some(c.to_string());
             }
-        })
-        .collect();
+        }
+        if git_branch.is_none() {
+            if let Some(b) = value.get("gitBranch").and_then(|v| v.as_str()) {
+                git_branch = Some(b.to_string());
+            }
+        }
 
-    Ok(sessions)
+        let line_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        match line_type {
+            "user" => {
+                message_count += 1;
+
+                // Extract first prompt from first user message with string content.
+                if first_prompt.is_none() {
+                    if let Some(content) = value
+                        .get("message")
+                        .and_then(|m| m.get("content"))
+                        .and_then(|c| c.as_str())
+                    {
+                        first_prompt = Some(content.to_string());
+                    }
+                }
+            }
+            "summary" => {
+                if let Some(s) = value.get("summary").and_then(|v| v.as_str()) {
+                    summary = Some(s.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(Session {
+        uuid,
+        project_path: cwd.unwrap_or_default(),
+        git_branch,
+        summary,
+        first_prompt,
+        modified,
+        message_count: Some(message_count),
+        provider: SessionProvider::Claude,
+    })
 }

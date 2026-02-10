@@ -22,7 +22,7 @@ No unit tests exist—this is a binary crate tested manually via the TUI.
 
 1. **Scan mode** (`ws --scan`): Updates SQLite database by scanning:
    - Git repos from configured `scan_dirs` via `git worktree list --porcelain`
-   - Claude sessions from `~/.claude/projects/*/sessions-index.json`
+   - Claude sessions from `~/.claude/projects/*/*.jsonl`
 
 2. **TUI mode** (`ws [filter]`): Interactive tree browser
    - Hierarchy: Repo → Branch → Session
