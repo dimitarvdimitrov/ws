@@ -151,14 +151,7 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
 
                         let checkbox = if is_checked { "[x]" } else { "[ ]" };
 
-                        let summary = session
-                            .summary
-                            .as_ref()
-                            .or(session.first_prompt.as_ref())
-                            .map(|s| truncate_str(s, 40))
-                            .unwrap_or_else(|| "No summary".to_string());
-
-                        // Format metadata: message count and relative time
+                        // Format metadata first so we know its width
                         let msg_count = session
                             .message_count
                             .map(|c| format!("{} msg", c))
@@ -170,6 +163,18 @@ pub fn render_tree(f: &mut Frame, area: Rect, app: &App) {
                         } else {
                             format!("{} • {}", msg_count, relative_time)
                         };
+
+                        // Compute summary max width dynamically from terminal width
+                        // Layout: "        [x] " (13) + summary + " • " (3) + metadata
+                        let fixed_width = 13 + 3 + metadata.len();
+                        let summary_max = (area.width as usize).saturating_sub(fixed_width).max(10);
+
+                        let summary = session
+                            .summary
+                            .as_ref()
+                            .or(session.first_prompt.as_ref())
+                            .map(|s| truncate_str(s, summary_max))
+                            .unwrap_or_else(|| "No summary".to_string());
 
                         // Color by provider: orange for Claude, white/gray for Codex
                         let is_claude = session.provider.as_str() != "codex";
