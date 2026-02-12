@@ -211,7 +211,12 @@ impl App {
                 // Proceed with launch
                 self.do_launch()
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                // Skip WIP commit, but still launch
+                self.confirm_dialog = None;
+                self.do_launch()
+            }
+            KeyCode::Esc => {
                 self.confirm_dialog = None;
                 Action::Continue
             }

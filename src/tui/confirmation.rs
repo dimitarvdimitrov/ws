@@ -36,7 +36,7 @@ pub fn render_dialog(f: &mut Frame, dialog: &ConfirmDialog) {
         .alignment(Alignment::Center);
     f.render_widget(message, chunks[0]);
 
-    let buttons = Paragraph::new("[Y]es  [N]o")
+    let buttons = Paragraph::new("[Y]es  [N]o  [Esc] Cancel")
         .style(Style::default().fg(Color::Cyan))
         .alignment(Alignment::Center);
     f.render_widget(buttons, chunks[1]);
