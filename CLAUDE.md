@@ -12,6 +12,8 @@ cargo run -- --scan      # Run background scan to update database
 cargo run -- <filter>    # Launch TUI with initial filter text
 ```
 
+After making changes, install the updated binary with `cargo install --path .` from the repo root.
+
 No unit tests exist—this is a binary crate tested manually via the TUI.
 
 ## Architecture

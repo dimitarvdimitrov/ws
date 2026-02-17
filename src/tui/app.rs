@@ -592,19 +592,21 @@ impl App {
 
         let worktree = &repo.data.worktrees[branch.selected_worktree_idx];
 
-        // Generate and launch editor config with any pending git commands
-        let editor_config = actions::generate_editor_config(
-            &worktree.path,
-            &self.config.editor,
-            &self.pending_launch.pre_commands,
-        )?;
-        actions::open_config(&editor_config)?;
-
         // Generate and launch session configs
         let branch_data = match self.current_branch_data() {
             Some(bd) => bd,
             None => return Ok(()),
         };
+
+        // Only launch editor when no sessions are selected (resuming sessions doesn't need it)
+        if branch.selected_sessions.is_empty() {
+            let editor_config = actions::generate_editor_config(
+                &worktree.path,
+                &self.config.editor,
+                &self.pending_launch.pre_commands,
+            )?;
+            actions::open_config(&editor_config)?;
+        }
 
         for uuid in &branch.selected_sessions {
             if let Some(session) = branch_data.sessions.iter().find(|s| &s.uuid == uuid) {
