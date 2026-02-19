@@ -53,6 +53,7 @@ pub fn generate_session_config(
     worktree_path: &PathBuf,
     title: &str,
     provider: &str,
+    pre_commands: &[String],
 ) -> Result<PathBuf, Box<dyn Error>> {
     let config_name = format!("ws-session-{}", &session_uuid[..8.min(session_uuid.len())]);
     let config_path = warp_config_dir()?.join(format!("{}.yaml", config_name));
@@ -63,6 +64,13 @@ pub fn generate_session_config(
         _ => format!("claude --resume {}", session_uuid),
     };
 
+    // Build commands list: pre_commands first, then resume
+    let mut commands = String::new();
+    for cmd in pre_commands {
+        commands.push_str(&format!("            - exec: {}\n", cmd));
+    }
+    commands.push_str(&format!("            - exec: {}", resume_cmd));
+
     let yaml = format!(
         r#"---
 name: {}
@@ -72,12 +80,12 @@ windows:
         layout:
           cwd: {}
           commands:
-            - exec: {}
+{}
 "#,
         config_name,
         title.replace('"', "'"), // Escape quotes in title
         worktree_path.display(),
-        resume_cmd
+        commands
     );
 
     fs::write(&config_path, yaml)?;

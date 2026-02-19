@@ -598,8 +598,8 @@ impl App {
             None => return Ok(()),
         };
 
-        // Only launch editor when no sessions are selected (resuming sessions doesn't need it)
         if branch.selected_sessions.is_empty() {
+            // No sessions selected — open editor with pre_commands
             let editor_config = actions::generate_editor_config(
                 &worktree.path,
                 &self.config.editor,
@@ -608,6 +608,7 @@ impl App {
             actions::open_config(&editor_config)?;
         }
 
+        let mut first_session = true;
         for uuid in &branch.selected_sessions {
             if let Some(session) = branch_data.sessions.iter().find(|s| &s.uuid == uuid) {
                 // Only migrate Claude sessions - Codex uses central storage
@@ -632,11 +633,19 @@ impl App {
                         }
                     });
 
+                // Inject pre_commands (checkout, WIP reset) into the first session tab
+                let cmds = if first_session {
+                    first_session = false;
+                    &self.pending_launch.pre_commands[..]
+                } else {
+                    &[]
+                };
                 let session_config = actions::generate_session_config(
                     &session.uuid,
                     &worktree.path,
                     &title,
                     &session.provider,
+                    cmds,
                 )?;
                 actions::open_config(&session_config)?;
             }
